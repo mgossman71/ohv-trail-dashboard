@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  ohv-trail-dashboard:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./templates:/app/templates
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ohv-trail-scraper:
+    build: .
+    command: python scraper.py
+    volumes:
+      - ./data:/app/data
+      - ./templates:/app/templates
+    environment:
+      - SCRAPER_SCHEDULE=0 6 * * *
+    restart: "no"
+    depends_on:
+      - ohv-trail-dashboard
