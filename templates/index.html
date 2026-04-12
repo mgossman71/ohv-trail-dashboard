@@ -87,6 +87,58 @@
 
         .sort-arrow { opacity: 0.35; margin-left: 2px; }
         .sort-arrow.active { opacity: 1; }
+
+        /* ── Mobile: stack each row as a card ─────────────────────────────── */
+        @media (max-width: 700px) {
+            header .inner { flex-direction: column; }
+            header .title-block h1 { font-size: 1.4rem; }
+            .location-widget { width: 100%; min-width: unset; }
+
+            .trails-table { border-radius: 10px; }
+
+            /* Hide the header row — labels come from data-label on each cell */
+            #trails-table thead { display: none; }
+
+            #trails-table tbody tr {
+                display: block;
+                border: 1px solid #e8eaed;
+                border-radius: 10px;
+                margin-bottom: 12px;
+                padding: 4px 0;
+                background: white;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+            }
+            #trails-table tbody tr:hover { background: white; }
+
+            #trails-table td {
+                display: flex;
+                align-items: baseline;
+                gap: 10px;
+                padding: 9px 16px;
+                border-bottom: 1px solid #f4f5f7;
+                font-size: 0.9rem;
+            }
+            #trails-table td:last-child { border-bottom: none; }
+
+            /* Left-side label pulled from data-label attribute */
+            #trails-table td::before {
+                content: attr(data-label);
+                flex-shrink: 0;
+                width: 90px;
+                font-size: 0.75rem;
+                font-weight: 600;
+                color: #888;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+            }
+
+            /* Trail name cell: stack name + notes vertically */
+            #trails-table td.trail-name { flex-direction: column; align-items: flex-start; gap: 2px; }
+            #trails-table td.trail-name::before { width: auto; }
+
+            /* Sort headers not usable on mobile — hide sort hint */
+            .sort-arrow { display: none; }
+        }
     </style>
 </head>
 <body>
@@ -150,16 +202,16 @@
                 {% if trails %}
                     {% for trail in trails %}
                     <tr data-lat="{{ trail.trail_lat or '' }}" data-lng="{{ trail.trail_lng or '' }}" data-name="{{ trail.name | e }}">
-                        <td class="trail-name">
+                        <td class="trail-name" data-label="Trail">
                             <a href="{{ trail.dnr_url }}" target="_blank" rel="noopener">{{ trail.name }}</a>
                             {% if trail.status_notes %}
                                 <span class="status-notes">{{ trail.status_notes }}</span>
                             {% endif %}
                         </td>
-                        <td>{{ trail.counties or '—' }}</td>
-                        <td>{{ trail.miles if trail.miles else '—' }}</td>
-                        <td class="distance-cell">—</td>
-                        <td>
+                        <td data-label="Counties">{{ trail.counties or '—' }}</td>
+                        <td data-label="Trail Miles">{{ trail.miles if trail.miles else '—' }}</td>
+                        <td class="distance-cell" data-label="Distance">—</td>
+                        <td data-label="Status">
                             {% set s = trail.status_display %}
                             {% if s == 'OPEN' %}
                                 <span class="badge badge-open">OPEN</span>
@@ -171,8 +223,8 @@
                                 <span class="badge badge-unknown">{{ trail.status }}</span>
                             {% endif %}
                         </td>
-                        <td>{{ trail.last_updated or '—' }}</td>
-                        <td><a class="btn-directions" href="#" target="_blank" rel="noopener">Directions</a></td>
+                        <td data-label="Updated">{{ trail.last_updated or '—' }}</td>
+                        <td data-label="Directions"><a class="btn-directions" href="#" target="_blank" rel="noopener">Directions</a></td>
                     </tr>
                     {% endfor %}
                 {% else %}
