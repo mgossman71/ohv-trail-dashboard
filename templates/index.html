@@ -138,6 +138,20 @@
 
             /* Sort headers not usable on mobile — hide sort hint */
             .sort-arrow { display: none; }
+
+            /* Show the mobile sort control */
+            .mobile-sort { display: flex; align-items: center; gap: 8px; width: 100%; }
+            .mobile-sort select {
+                flex: 1;
+                padding: 10px 12px;
+                border: 2px solid #e0e0e0;
+                border-radius: 8px;
+                font-size: 0.9rem;
+                background: white;
+                color: #222;
+            }
+            .mobile-sort select:focus { outline: none; border-color: #2563eb; }
+            .mobile-sort label { font-size: 0.85rem; color: #555; white-space: nowrap; }
         }
     </style>
 </head>
@@ -182,6 +196,20 @@
             <a href="?status=limited" class="filter-btn limited-btn {% if status_filter == 'limited' %}active{% endif %}">Limited</a>
         </div>
         <a href="/api/export?status={{ status_filter or 'all' }}" class="export-btn">Export CSV</a>
+        <!-- Sort control — only visible in mobile card view -->
+        <div class="mobile-sort" style="display:none;" id="mobile-sort-control">
+            <label for="mobile-sort-select">Sort:</label>
+            <select id="mobile-sort-select" onchange="mobileSortChanged()">
+                <option value="0-asc">Trail Name A→Z</option>
+                <option value="0-desc">Trail Name Z→A</option>
+                <option value="3-asc">Distance ↑</option>
+                <option value="3-desc">Distance ↓</option>
+                <option value="4-asc">Status A→Z</option>
+                <option value="2-desc">Trail Miles ↓</option>
+                <option value="2-asc">Trail Miles ↑</option>
+                <option value="5-desc">Recently Updated</option>
+            </select>
+        </div>
     </div>
 
     <!-- Table -->
@@ -336,11 +364,15 @@
 
     // ── Sort ──────────────────────────────────────────────────────────────────
     let sortCol = -1, sortAsc = true;
-    function sortTable(col) {
+    function sortTable(col, asc) {
         const tbody = document.querySelector('#trails-table tbody');
         const rows = Array.from(tbody.querySelectorAll('tr'));
         if (rows.length === 1 && rows[0].querySelector('.no-results')) return;
-        sortAsc = (col === sortCol) ? !sortAsc : true;
+        if (asc === undefined) {
+            sortAsc = (col === sortCol) ? !sortAsc : true;
+        } else {
+            sortAsc = asc;
+        }
         sortCol = col;
         rows.sort((a, b) => {
             const ta = (a.querySelectorAll('td')[col]?.textContent ?? '').trim().toLowerCase().replace(/[~,mi\s]/g, '');
@@ -352,10 +384,26 @@
             return 0;
         });
         rows.forEach(r => tbody.appendChild(r));
-        document.querySelectorAll('.sort-arrow').forEach((el, i) => { el.textContent = '↕'; el.classList.remove('active'); });
+        document.querySelectorAll('.sort-arrow').forEach(el => { el.textContent = '↕'; el.classList.remove('active'); });
         const arrow = document.getElementById(`arrow-${col}`);
         if (arrow) { arrow.textContent = sortAsc ? '↑' : '↓'; arrow.classList.add('active'); }
     }
+
+    // ── Mobile sort dropdown ──────────────────────────────────────────────────
+    function mobileSortChanged() {
+        const val = document.getElementById('mobile-sort-select').value;
+        const [col, dir] = val.split('-');
+        sortTable(parseInt(col), dir === 'asc');
+    }
+
+    // Show/hide the mobile sort control based on viewport width
+    const mobileSortControl = document.getElementById('mobile-sort-control');
+    const mobileBreakpoint = window.matchMedia('(max-width: 1024px)');
+    function applyMobileSortVisibility(mq) {
+        mobileSortControl.style.display = mq.matches ? 'flex' : 'none';
+    }
+    mobileBreakpoint.addEventListener('change', applyMobileSortVisibility);
+    applyMobileSortVisibility(mobileBreakpoint);
 
     // ── Search ────────────────────────────────────────────────────────────────
     function handleSearch() {
