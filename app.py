@@ -1,29 +1,44 @@
 """
-OHV Trail Dashboard - Web Application
-A personal tool to browse Minnesota OHV trail statuses
+app.py — OHV Trail Dashboard web application
+
+A Flask application that serves the Minnesota OHV trail status dashboard.
+Trail data lives in a SQLite database that is updated by scraper.py running
+on a schedule via scheduler.py.  Because Flask queries the database on every
+request, scraper updates are visible to the user immediately — no app restart
+is ever required.
+
+Routes:
+    GET /                           Main dashboard (server-rendered HTML)
+    GET /api/trails                 JSON list of trails, optional ?status= filter
+    GET /api/stats                  JSON summary counts + last_updated date
+    GET /api/status-history/<id>    JSON status change history for one trail
+    GET /api/export                 CSV download, optional ?status= filter
+
+Configuration (environment variables):
+    DATABASE_PATH   Path to the SQLite database file.
+                    Default: <app_dir>/data/trails.db
+    TEMPLATES_DIR   Path to the Jinja2 templates directory.
+                    Default: <app_dir>/templates
 """
 
 import os
+import csv
+import io
 import sqlite3
-from flask import Flask, render_template, request, jsonify, abort
+from flask import Flask, render_template, request, jsonify
 
-app = Flask(__name__, template_folder='/app/templates')
-DATABASE = '/app/data/trails.db'
+# Portable paths — override DATABASE_PATH env var when running outside Docker
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'data', 'trails.db'))
+TEMPLATES_DIR = os.environ.get('TEMPLATES_DIR', os.path.join(BASE_DIR, 'templates'))
 
-# Ensure templates directory exists
-templates_dir = '/app/templates'
-if not os.path.exists(templates_dir):
-    os.makedirs(templates_dir)
+app = Flask(__name__, template_folder=TEMPLATES_DIR)
 
-# Ensure data directory exists
-data_dir = '/app/data'
-if not os.path.exists(data_dir):
-    os.makedirs(data_dir)
+os.makedirs(os.path.dirname(DATABASE), exist_ok=True)
 
-print(f"App started. Templates: {templates_dir}, Data: {data_dir}, Database: {DATABASE}")
 
 def get_db():
-    """Get database connection"""
+    """Get database connection. Returns None if DB not found."""
     if not os.path.exists(DATABASE):
         print(f"Database not found at {DATABASE}")
         return None
@@ -35,18 +50,12 @@ def get_db():
         print(f"Database connection error: {e}")
         return None
 
-def get_db():
-    """Get database connection"""
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 def init_db():
-    """Initialize the database"""
-    os.makedirs('/app/data', exist_ok=True)
-    conn = get_db()
-    
-    # Trails table
+    """Create database tables if they don't exist. Safe to call on every startup."""
+    os.makedirs(os.path.dirname(DATABASE), exist_ok=True)
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
     conn.execute('''
         CREATE TABLE IF NOT EXISTS trails (
             id INTEGER PRIMARY KEY,
@@ -62,11 +71,10 @@ def init_db():
             status TEXT,
             status_notes TEXT,
             last_updated DATE,
-            normal_season TEXT
+            normal_season TEXT,
+            dnr_url TEXT
         )
     ''')
-    
-    # Status history for tracking changes over time
     conn.execute('''
         CREATE TABLE IF NOT EXISTS status_history (
             id INTEGER PRIMARY KEY,
@@ -77,295 +85,212 @@ def init_db():
             FOREIGN KEY (trail_id) REFERENCES trails(trail_id)
         )
     ''')
-    
+    # Add dnr_url column to existing databases that don't have it
+    try:
+        conn.execute('ALTER TABLE trails ADD COLUMN dnr_url TEXT')
+    except Exception:
+        pass  # Column already exists
     conn.commit()
     conn.close()
 
-@app.route('/')
-def index():
-    """Main dashboard page"""
+
+def normalize_status(raw):
+    """
+    Return a canonical status string for display and SQL filtering.
+    Maps any raw DNR status text to one of: OPEN, Closed, Limited, Unknown.
+    Must stay in sync with the LOWER(status) comparisons in trails_query().
+    """
+    if not raw:
+        return 'Unknown'
+    s = raw.strip().lower()
+    if s == 'open' or s == 'open':
+        return 'OPEN'
+    if 'open' in s and 'limited' not in s:
+        return 'OPEN'
+    if 'limited' in s:
+        return 'Limited'
+    if 'closed' in s:
+        return 'Closed'
+    return raw.strip()
+
+
+def get_county_coords():
+    """
+    Approximate geographic center coordinates (lat, lng) for Minnesota counties
+    that contain OHV trails.
+
+    These are used by the dashboard's client-side JavaScript to calculate
+    straight-line distance from the user's location to each trail.  They are
+    county-center estimates, not exact trailhead coordinates, so distances are
+    approximate — useful for a rough "how far away is this?" gauge.
+    """
+    return {
+        'Aitkin':       (46.60, -93.41),
+        'Becker':       (46.93, -95.66),
+        'Beltrami':     (47.97, -94.90),
+        'Carlton':      (46.59, -92.68),
+        'Cass':         (46.95, -94.33),
+        'Clay':         (46.89, -96.50),
+        'Cook':         (47.87, -90.55),
+        'Crow Wing':    (46.50, -94.07),
+        'Fillmore':     (43.67, -92.09),
+        'Grant':        (45.93, -96.02),
+        'Hubbard':      (47.10, -94.92),
+        'Itasca':       (47.50, -93.62),
+        'Koochiching':  (48.22, -93.78),
+        'Lake':         (47.38, -91.39),
+        'Lyon':         (44.41, -95.83),
+        'Marshall':     (48.35, -96.37),
+        'Meeker':       (45.12, -94.52),
+        'Mille Lacs':   (46.11, -93.64),
+        'Morrison':     (46.02, -94.26),
+        'Norman':       (47.33, -96.46),
+        'Pine':         (46.12, -92.72),
+        'Polk':         (47.77, -96.41),
+        'Roseau':       (48.73, -95.85),
+        'St. Louis':    (47.57, -92.49),
+        'Swift':        (45.29, -95.84),
+        'Wabasha':      (44.27, -92.03),
+        'Wadena':       (46.58, -95.00),
+        'Winona':       (43.90, -91.66),
+        # Multi-county trails: use geographic midpoint of the listed counties
+        'Beltrami, Marshall': (48.10, -95.60),
+        'Clay, Norman, Polk': (47.30, -96.45),
+        'Crow Wing, Aitkin':  (46.55, -93.70),
+        'Lake, St. Louis':    (47.47, -91.94),
+    }
+
+
+def build_trail_dict(row):
+    """
+    Convert a sqlite3.Row into a plain dict and attach computed fields:
+        dnr_url         Full URL to the trail's DNR detail page.
+        trail_lat/lng   Approximate coordinates from get_county_coords(),
+                        used by the frontend for distance calculation.
+        status_display  Canonical status string from normalize_status().
+    """
+    d = dict(row)
+    if not d.get('dnr_url') and d.get('trail_id'):
+        d['dnr_url'] = f"https://www.dnr.state.mn.us/ohv/trail_detail.html?id={d['trail_id']}"
+    # Coordinates for client-side distance calculation
+    county_coords = get_county_coords()
+    coords = county_coords.get(d.get('counties', ''))
+    d['trail_lat'] = coords[0] if coords else None
+    d['trail_lng'] = coords[1] if coords else None
+    d['status_display'] = normalize_status(d.get('status', ''))
+    return d
+
+
+def trails_query(status_filter='all', query=''):
+    """
+    Query the trails table and return a list of trail dicts.
+
+    Args:
+        status_filter   'all' | 'open' | 'closed' | 'limited'
+        query           Free-text search against trail name and counties.
+    """
     conn = get_db()
     if not conn:
-        print("ERROR: Database connection failed")
-        return "Database connection failed", 500
-    
-    try:
-        # DEBUG: Print to console
-        print(f"Request received: {request.url}")
-        
-        trail_count = conn.execute('SELECT COUNT(*) FROM trails').fetchone()[0]
-        print(f"Trails count in DB: {trail_count}")
-        
-        # Get all trails with current status
-        query = request.args.get('query', '').lower()
-        status_filter = request.args.get('status', 'all')
-        
-        sql = 'SELECT trail_id, name, counties, miles, atv_miles, ohv_miles, ohm_miles, morv_miles, winter_miles, status, status_notes, last_updated, normal_season FROM trails WHERE 1=1'
-        params = []
-        
-        if query:
-            sql += ' AND (LOWER(name) LIKE ? OR LOWER(counties) LIKE ?)'
-            search_term = f'%{query}%'
-            params.extend([search_term, search_term])
-        
-        if status_filter != 'all':
-            if status_filter == 'open':
-                sql += ' AND status LIKE "%OPEN%"'
-            elif status_filter == 'closed':
-                sql += ' AND (status LIKE "%Closed%" OR status LIKE "%CLOSED%")'
-            elif status_filter == 'limited':
-                sql += ' AND status LIKE "%Limited%"'
-        
-        sql += ' ORDER BY name ASC'
-        
-        trails = conn.execute(sql, params).fetchall()
-        conn.close()
-        
-        # Calculate distances
-        distances = {
-            'Mille Lacs': '45-50 miles', 'Crow Wing': '55-65 miles',
-            'Cass': '65-75 miles', 'Swift': '90-100 miles',
-            'Fillmore': '105-115 miles', 'St. Louis': '120-135 miles',
-            'Pine': '140-150 miles', 'Hubbard': '125-135 miles',
-            'Becker': '135-145 miles', 'Roseau': '140-180 miles',
-            'Norman': '150-160 miles', 'Itasca': '160-220 miles',
-            'Koochiching': '165-175 miles', 'Beltrami': '170-250 miles',
-            'Marshall': '170-260 miles', 'Carlton': '165-180 miles',
-            'Aitkin': '205-225 miles', 'Cook': '225-235 miles',
-            'Lake': '170-235 miles', 'Multiple': 'Varies', 'Wabasha': '110-120 miles',
-            'Winona': '115-125 miles', 'Grant': '255-265 miles', 'Lyon': '180-190 miles',
-            'Meeker': '185-195 miles', 'Wadena': '170-180 miles', 'Polk': '160-170 miles',
-            'Clay': '155-165 miles'
-        }
-        
-        # Convert sqlite3.Row to dict and add distance
-        trails_list = []
-        for trail in trails:
-            trail_dict = dict(trail)  # Convert to regular dict
-            trail_dict['distance'] = distances.get(trail_dict['counties'], 'Unknown')
-            trails_list.append(trail_dict)
-        
-        print(f"Rendering template with {len(trails_list)} trails")
-        
-        return render_template('index.html', trails=trails_list, status_filter=status_filter)
-        
-    except Exception as e:
-        print(f"ERROR in index route: {e}")
-        import traceback
-        traceback.print_exc()
-        return f"Error: {str(e)}\n\nStack trace:\n{traceback.format_exc()}", 500
+        return []
 
-@app.route('/debug')
-def debug():
-    """Debug endpoint to check app status"""
-    try:
-        conn = get_db()
-        if not conn:
-            return "Database not available", 500
-        
-        trail_count = conn.execute('SELECT COUNT(*) FROM trails').fetchone()[0]
-        open_count = conn.execute('SELECT COUNT(*) FROM trails WHERE status LIKE "%OPEN%"').fetchone()[0]
-        
-        return f"""
-            <html>
-            <body>
-                <h1>Debug Info</h1>
-                <p>✅ App is running!</p>
-                <p>📊 Total trails: {trail_count}</p>
-                <p>✅ Open trails: {open_count}</p>
-                <p><a href="/">Back to Dashboard</a></p>
-            </body>
-            </html>
-        """
-    except Exception as e:
-        return f"Debug error: {e}", 500
-
-@app.route('/test')
-def test():
-    """Simple test page"""
-    return "✅ Flask is working! The app is running correctly.", 200
-
-@app.route('/api/trails', methods=['GET'])
-def api_trails():
-    """API endpoint to get all trails"""
-    conn = get_db()
-    status_filter = request.args.get('status', 'all')
-    
     sql = '''
-        SELECT trail_id, name, counties, miles, atv_miles, ohv_miles, 
-               ohm_miles, morv_miles, winter_miles, status, status_notes, 
-               last_updated, normal_season
-        FROM trails
-        WHERE 1=1
+        SELECT trail_id, name, counties, miles, atv_miles, ohv_miles,
+               ohm_miles, morv_miles, winter_miles, status, status_notes,
+               last_updated, normal_season, dnr_url
+        FROM trails WHERE 1=1
     '''
     params = []
-    
-    if status_filter != 'all':
-        if status_filter == 'open':
-            sql += ' AND status LIKE "%OPEN%"'
-        elif status_filter == 'closed':
-            sql += ' AND (status LIKE "%Closed%" OR status LIKE "%CLOSED%")'
-        elif status_filter == 'limited':
-            sql += ' AND (status LIKE "%Limited%" OR (status LIKE "%Open%" AND status != "%OPEN%"))'
-    
+
+    if query:
+        sql += ' AND (LOWER(name) LIKE ? OR LOWER(counties) LIKE ?)'
+        params.extend([f'%{query.lower()}%', f'%{query.lower()}%'])
+
+    if status_filter == 'open':
+        sql += " AND LOWER(status) = 'open'"
+    elif status_filter == 'closed':
+        sql += " AND LOWER(status) = 'closed'"
+    elif status_filter == 'limited':
+        sql += " AND LOWER(status) = 'limited'"
+
     sql += ' ORDER BY name ASC'
-    
-    trails = conn.execute(sql, params).fetchall()
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
-    
-    # Convert to list of dicts
-    trails_list = [dict(trail) for trail in trails]
-    
-    # Add distances
-    distances = get_estimated_distances()
-    for trail in trails_list:
-        trail['distance'] = distances.get(trail['counties'], 'Unknown')
-    
-    return jsonify(trails_list)
+    return [build_trail_dict(r) for r in rows]
 
-@app.route('/api/status-history/<int:trail_id>', methods=['GET'])
-def status_history(trail_id):
-    """Get status history for a specific trail"""
-    conn = get_db()
-    history = conn.execute(
-        'SELECT status, status_notes, recorded_at FROM status_history WHERE trail_id = ? ORDER BY recorded_at DESC',
-        (trail_id,)
-    ).fetchall()
-    conn.close()
-    
-    return jsonify([dict(h) for h in history])
 
-@app.route('/api/stats', methods=['GET'])
+@app.route('/')
+def index():
+    query = request.args.get('query', '')
+    status_filter = request.args.get('status', 'all')
+    trails = trails_query(status_filter=status_filter, query=query)
+    return render_template('index.html', trails=trails, status_filter=status_filter)
+
+
+@app.route('/api/trails')
+def api_trails():
+    status_filter = request.args.get('status', 'all')
+    return jsonify(trails_query(status_filter=status_filter))
+
+
+@app.route('/api/stats')
 def api_stats():
-    """Get overall statistics"""
     conn = get_db()
-    
-    # Count by status
-    open_count = conn.execute(
-        'SELECT COUNT(*) as count FROM trails WHERE status LIKE "%OPEN%"'
-    ).fetchone()['count']
-    
-    closed_count = conn.execute(
-        'SELECT COUNT(*) as count FROM trails WHERE status LIKE "%Closed%" OR status LIKE "%CLOSED%"'
-    ).fetchone()['count']
-    
-    limited_count = conn.execute(
-        'SELECT COUNT(*) as count FROM trails WHERE status LIKE "%Limited%" OR (status LIKE "%Open%" AND status != "%OPEN%")'
-    ).fetchone()['count']
-    
-    total = conn.execute('SELECT COUNT(*) as count FROM trails').fetchone()['count']
-    
+    if not conn:
+        return jsonify({'total': 0, 'open': 0, 'closed': 0, 'limited': 0})
+
+    total = conn.execute('SELECT COUNT(*) FROM trails').fetchone()[0]
+    open_count = conn.execute("SELECT COUNT(*) FROM trails WHERE LOWER(status) = 'open'").fetchone()[0]
+    closed_count = conn.execute("SELECT COUNT(*) FROM trails WHERE LOWER(status) = 'closed'").fetchone()[0]
+    limited_count = conn.execute("SELECT COUNT(*) FROM trails WHERE LOWER(status) = 'limited'").fetchone()[0]
+    last_updated = conn.execute("SELECT MAX(last_updated) FROM trails").fetchone()[0]
     conn.close()
-    
+
     return jsonify({
         'total': total,
         'open': open_count,
         'closed': closed_count,
-        'limited': limited_count
+        'limited': limited_count,
+        'last_updated': last_updated,
     })
 
-def get_estimated_distances():
-    """
-    Get estimated driving distances from Andover, MN (55304)
-    These are approximations based on county locations
-    """
-    return {
-        'Mille Lacs': '45-50 miles',
-        'Crow Wing': '55-65 miles',
-        'Cass': '65-75 miles',
-        'Swift': '90-100 miles',
-        'Fillmore': '105-115 miles',
-        'Wabasha': '110-120 miles',
-        'Winona': '115-125 miles',
-        'St. Louis': '120-135 miles',
-        'Pine': '140-150 miles',
-        'Hubbard': '125-135 miles',
-        'Becker': '135-145 miles',
-        'Roseau': '140-180 miles',
-        'Norman': '150-160 miles',
-        'Clay': '155-165 miles',
-        'Polk': '160-170 miles',
-        'Itasca': '160-220 miles',
-        'Koochiching': '165-175 miles',
-        'Beltrami': '170-250 miles',
-        'Marshall': '170-260 miles',
-        'Carlton': '165-180 miles',
-        'Aitkin': '205-225 miles',
-        'Morrison': '215-230 miles',
-        'Cook': '225-235 miles',
-        'Lake': '170-235 miles',
-        'Wadena': '170-180 miles',
-        'Grant': '255-265 miles',
-        'Lyon': '180-190 miles',
-        'Meeker': '185-195 miles',
-        'Mille Lacs County': '175 miles',
-        'Multiple': 'Varies',
-    }
 
-@app.route('/api/export', methods=['GET'])
-def api_export():
-    """Export trails data to CSV"""
+@app.route('/api/status-history/<int:trail_id>')
+def status_history(trail_id):
     conn = get_db()
-    status_filter = request.args.get('status', 'all')
-    
-    sql = '''
-        SELECT trail_id, name, counties, miles, atv_miles, ohv_miles, 
-               ohm_miles, morv_miles, winter_miles, status, status_notes, 
-               last_updated, normal_season
-        FROM trails
-        WHERE 1=1
-    '''
-    params = []
-    
-    if status_filter != 'all':
-        if status_filter == 'open':
-            sql += ' AND status LIKE "%OPEN%"'
-        elif status_filter == 'closed':
-            sql += ' AND (status LIKE "%Closed%" OR status LIKE "%CLOSED%")'
-        elif status_filter == 'limited':
-            sql += ' AND (status LIKE "%Limited%" OR (status LIKE "%Open%" AND status != "%OPEN%"))'
-    
-    sql += ' ORDER BY name ASC'
-    
-    trails = conn.execute(sql, params).fetchall()
+    if not conn:
+        return jsonify([])
+    rows = conn.execute(
+        'SELECT status, status_notes, recorded_at FROM status_history WHERE trail_id = ? ORDER BY recorded_at DESC',
+        (trail_id,)
+    ).fetchall()
     conn.close()
-    
-    # Generate CSV
-    import csv
-    import io
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/export')
+def api_export():
+    status_filter = request.args.get('status', 'all')
+    trails = trails_query(status_filter=status_filter)
+
     output = io.StringIO()
     writer = csv.writer(output)
-    
-    # Header
-    writer.writerow(['Trail ID', 'Name', 'Counties', 'Total Miles', 'ATV', 'OHV', 'OHM', 'MORV', 'Winter', 'Status', 'Status Notes', 'Last Updated', 'Normal Season'])
-    
-    # Data rows
-    for trail in trails:
+    writer.writerow(['Trail ID', 'Name', 'Counties', 'Total Miles', 'ATV', 'OHV', 'OHM', 'MORV',
+                     'Winter', 'Status', 'Status Notes', 'Last Updated', 'Normal Season', 'DNR URL'])
+    for t in trails:
         writer.writerow([
-            trail['trail_id'],
-            trail['name'],
-            trail['counties'],
-            trail['miles'],
-            trail['atv_miles'],
-            trail['ohv_miles'],
-            trail['ohm_miles'],
-            trail['morv_miles'],
-            trail['winter_miles'],
-            trail['status'],
-            trail['status_notes'],
-            trail['last_updated'],
-            trail['normal_season']
+            t.get('trail_id'), t.get('name'), t.get('counties'), t.get('miles'),
+            t.get('atv_miles'), t.get('ohv_miles'), t.get('ohm_miles'), t.get('morv_miles'),
+            t.get('winter_miles'), t.get('status'), t.get('status_notes'),
+            t.get('last_updated'), t.get('normal_season'), t.get('dnr_url'),
         ])
-    
     output.seek(0)
-    
     return output.getvalue(), 200, {
         'Content-Type': 'text/csv',
-        'Content-Disposition': f'attachment; filename=trails_{status_filter or "all"}.csv'
+        'Content-Disposition': f'attachment; filename=trails_{status_filter}.csv',
     }
 
+
 if __name__ == '__main__':
-    # Initialize database tables if they don't exist
     init_db()
-    
+    print(f"Database: {DATABASE}")
     app.run(host='0.0.0.0', port=8000, debug=False)

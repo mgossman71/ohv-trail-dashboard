@@ -1,35 +1,25 @@
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Create data directory inside container
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /app/templates
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY app.py .
-COPY scraper.py .
-COPY init_db.py .
-COPY init_container_db.py .
+COPY app.py scraper.py init_db.py scheduler.py ./
+COPY templates/ templates/
 
-# Initialize database on build
-RUN python init_container_db.py
+# Seed the database at build time so the app has data on first start.
+# The scraper will overwrite statuses with live data on its first run.
+ENV DATABASE_PATH=/app/data/trails.db
+RUN python init_db.py
 
-# Expose port
 EXPOSE 8000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/ || exit 1
 
-# Run the application
 CMD ["python", "app.py"]

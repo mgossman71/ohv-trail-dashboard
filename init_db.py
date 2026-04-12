@@ -1,25 +1,22 @@
 """
-Initialize the database with pre-fetched trail data
+Initialize the database with pre-fetched trail data.
+Run this once to seed the database; scraper.py keeps it up to date afterward.
 """
 
 import sqlite3
 import os
-from datetime import datetime
 
-# Force Docker path - this is where the mounted volume will be
-# The volume mount ./data:/app/data ensures persistence
-DATABASE = '/app/data/trails.db'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'data', 'trails.db'))
+
+DNR_BASE = 'https://www.dnr.state.mn.us/ohv/trail_detail.html?id='
+
 
 def init_database():
-    """Create database and insert all trail data"""
-    
     os.makedirs(os.path.dirname(DATABASE), exist_ok=True)
-    
     conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
-    # Create tables
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS trails (
             id INTEGER PRIMARY KEY,
@@ -35,10 +32,11 @@ def init_database():
             status TEXT,
             status_notes TEXT,
             last_updated DATE,
-            normal_season TEXT
+            normal_season TEXT,
+            dnr_url TEXT
         )
     ''')
-    
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS status_history (
             id INTEGER PRIMARY KEY,
@@ -49,12 +47,20 @@ def init_database():
             FOREIGN KEY (trail_id) REFERENCES trails(trail_id)
         )
     ''')
-    
+
+    # Add dnr_url to existing databases that predate this column
+    try:
+        cursor.execute('ALTER TABLE trails ADD COLUMN dnr_url TEXT')
+    except Exception:
+        pass
+
     conn.commit()
-    
-    # Pre-fetched trail data from DNR website
+
+    # Trail data seeded from DNR website — scraper.py will keep status current.
+    # Columns: trail_id, name, counties, total_miles, atv, ohv, ohm, morv, winter,
+    #          status, status_notes, last_updated, normal_season
+    # Status values must be exactly: OPEN, Closed, Limited (scraper normalizes to these)
     trails = [
-        # ID, Name, Counties, Total Miles, ATV, OHV, OHM, MORV, Winter, Status, Notes, Last Updated, Season
         (132, 'Agassiz Central Trail', 'Norman', 17, 17, 0, 0, 0, 0, 'Closed', '', '2026-04-11', 'April 1 to November 30'),
         (2, 'Agassiz Recreational Trail', 'Clay, Norman, Polk', 52, 52, 0, 0, 0, 0, 'OPEN', '', '2026-04-11', 'Year round'),
         (3, 'Alborn-Pengilly Railroad Trail', 'Itasca', 39, 39, 0, 0, 0, 0, 'Closed', 'MN Highway 73 to Alborn: Closed; Pengilly to MN Highway 73: Closed', '2026-04-11', 'May 15 to November 30'),
@@ -78,11 +84,11 @@ def init_database():
         (70, 'Emily - Outing Trail', 'Cass', 56, 56, 56, 0, 0, 0, 'Closed', 'Check Land O Lakes State Forest', '2026-04-11', ''),
         (128, 'FireFrost Trail', 'Norman', 25, 0, 25, 0, 0, 0, 'OPEN', '', '2026-04-11', ''),
         (47, 'Fond du Lac State Forest Trails', 'Carlton', 37, 37, 37, 0, 27, 0, 'Closed', 'Check Fond du Lac State Forest', '2026-04-11', ''),
-        (9, 'Forest Riders Trail', 'Hubbard', 12, 12, 12, 0, 0, 0, 'Closed', 'Segment closed June 22 - Aug 12. Check Smoky Hills & Two Inlets State Forests', '2026-04-11', ''),
+        (9, 'Forest Riders Trail', 'Hubbard', 12, 12, 12, 0, 0, 0, 'Closed', 'Check Smoky Hills & Two Inlets State Forests', '2026-04-11', ''),
         (10, 'Fort Ripley Trail and Ripley Connection', 'Crow Wing', 31, 31, 19, 0, 0, 0, 'Closed', '', '2026-04-11', ''),
         (7, 'Fourtown-Grygla Trail', 'Beltrami', 17, 17, 12, 0, 0, 0, 'Closed', 'Check Beltrami Island State Forest', '2026-04-11', ''),
         (111, 'Foxy Loop', 'Mille Lacs', 3, 0, 3, 0, 0, 0, 'Closed', 'Closed for season', '2026-04-11', ''),
-        (11, 'Gandy Dancer Trail', 'Pine', 30, 30, 30, 30, 0, 30, 'OPEN', 'Gandy Dancer Trail: Open to OHV 2000lbs and less. Check St. Croix & Nemadji State Forests', '2026-04-11', ''),
+        (11, 'Gandy Dancer Trail', 'Pine', 30, 30, 30, 30, 0, 30, 'OPEN', 'Open to OHV 2000lbs and less. Check St. Croix & Nemadji State Forests', '2026-04-11', ''),
         (12, 'General C.C. Andrews State Forest Trails', 'Pine', 24, 24, 24, 0, 18, 0, 'OPEN', 'Check General C.C. Andrews State Forest', '2026-04-11', ''),
         (46, 'Genoa Trail', 'St. Louis', 33, 0, 0, 0, 3, 0, 'OPEN', '', '2026-04-11', ''),
         (69, 'Goodland Trail', 'Itasca', 19, 19, 19, 0, 0, 0, 'Closed', '', '2026-04-11', ''),
@@ -113,8 +119,8 @@ def init_database():
         (66, 'Moose Run Trail', 'Lake', 12, 0, 0, 0, 12, 0, 'Closed', 'Check Finland State Forest', '2026-04-11', ''),
         (16, 'Moose Walk Trail', 'Lake', 22, 0, 22, 0, 0, 0, 'Closed', 'Check Finland State Forest', '2026-04-11', ''),
         (37, 'Nemadji State Forest OHM Trails', 'Pine', 49, 0, 0, 49, 0, 0, 'Closed', 'Check Nemadji State Forest', '2026-04-11', ''),
-        (33, 'Nemadji State Forest OHV Trails', 'Pine', 100, 100, 100, 100, 0, 103, 'Closed', 'Gandy Dancer Trail: Open to OHV 2000lbs and less. Check Nemadji State Forest', '2026-04-11', ''),
-        (133, 'Northwoods ATV Trails', 'Multiple', None, 0, 0, 0, 0, 0, 'See individual trails', '', '2026-04-11', ''),
+        (33, 'Nemadji State Forest OHV Trails', 'Pine', 100, 100, 100, 100, 0, 103, 'Closed', 'Check Nemadji State Forest', '2026-04-11', ''),
+        (133, 'Northwoods ATV Trails', 'Multiple', None, 0, 0, 0, 0, 0, 'Closed', 'See individual trails', '2026-04-11', ''),
         (108, 'Old Greenwood Trail', 'Cook', 30, 0, 30, 0, 0, 0, 'Closed', 'Check Pat Bayle State Forest', '2026-04-11', ''),
         (17, 'Pine Center Trails', 'Crow Wing', 23, 23, 23, 0, 0, 0, 'Closed', '', '2026-04-11', ''),
         (118, 'Prospectors Trail', 'Lake, St. Louis', 167, 0, 163, 0, 0, 96, 'Closed', 'Check Bear Island & Finland State Forests', '2026-04-11', ''),
@@ -131,45 +137,47 @@ def init_database():
         (96, 'Smoky Hills ATV Trail', 'Becker', 20, 0, 20, 0, 0, 0, 'Closed', 'Check Smoky Hills State Forest', '2026-04-11', ''),
         (21, 'Snake Creek Trail', 'Wabasha', 13, 0, 13, 0, 0, 0, 'Closed', 'Trail closes at sunset October 31. Check Richard J. Dorer Memorial Hardwood Forest', '2026-04-11', ''),
         (45, 'Solana Loop', 'Aitkin', 15, 0, 15, 0, 0, 0, 'Closed', 'Check Solana State Forest', '2026-04-11', ''),
-        (38, 'Soo Line North Trail: Aitkin County', 'Aitkin', 48, 48, 48, 0, 0, 0, 'Route change', 'Use Maddy Street in City of McGregor. Check Hill River State Forest', '2026-04-11', ''),
+        (38, 'Soo Line North Trail: Aitkin County', 'Aitkin', 48, 48, 48, 0, 0, 0, 'Closed', 'Route change: Use Maddy Street in City of McGregor. Check Hill River State Forest', '2026-04-11', ''),
         (39, 'Soo Line North Trail: Carlton County', 'Carlton', 15, 15, 15, 0, 0, 0, 'OPEN', 'Check General C.C. Andrews State Forest', '2026-04-11', ''),
-        (40, 'Soo Line North Trail: Cass County', 'Cass', 52, 52, 52, 0, 0, 0, 'Open', 'Unless Groomed For Snowmobiles. Check Bowstring State Forest', '2026-04-11', ''),
+        (40, 'Soo Line North Trail: Cass County', 'Cass', 52, 52, 52, 0, 0, 0, 'OPEN', 'Unless Groomed For Snowmobiles. Check Bowstring State Forest', '2026-04-11', ''),
         (42, 'Soo Line South Trail: Aitkin County', 'Aitkin', 23, 23, 23, 0, 0, 0, 'OPEN', 'Check Solana State Forest', '2026-04-11', ''),
         (64, 'Soo Line South Trail: Carlton County', 'Carlton', 29, 0, 29, 0, 0, 0, 'OPEN', '', '2026-04-11', ''),
         (44, 'Soo Line South Trail: Mille Lacs County', 'Mille Lacs', 23, 23, 23, 0, 0, 0, 'OPEN', '', '2026-04-11', ''),
         (43, 'Soo Line South Trail: Morrison County', 'Morrison', 27, 0, 27, 0, 0, 0, 'OPEN', '', '2026-04-11', ''),
         (41, 'Soo Line South Trail: Pine County', 'Pine', 14, 14, 14, 0, 0, 0, 'OPEN', '', '2026-04-11', ''),
         (25, 'Soo Pits Trail', 'Carlton', 5, 0, 0, 0, 0, 0, 'OPEN', '', '2026-04-11', ''),
-        (26, 'Southeast Minnesota Trail', 'Winona', 13, 0, 13, 0, 0, 0, 'Closed', 'Trail closes at sunset on 2nd Sunday in October. Trail closes at sunset October 31 for the season', '2026-04-11', ''),
+        (26, 'Southeast Minnesota Trail', 'Winona', 13, 0, 13, 0, 0, 0, 'Closed', 'Trail closes at sunset on 2nd Sunday in October', '2026-04-11', ''),
         (27, 'Spider Lake Trails', 'Cass', 29, 0, 26, 0, 0, 12, 'Closed', 'Spring closure in effect. Check Foot Hills State Forest', '2026-04-11', ''),
         (28, 'St. Croix State Forest Trails', 'Pine', 26, 26, 26, 7, 0, 0, 'Closed', 'Check St. Croix State Forest', '2026-04-11', ''),
         (29, 'Stony Spur II Trail', 'St. Louis', 30, 0, 30, 0, 0, 0, 'Closed', '', '2026-04-11', ''),
-        (110, 'Taconite State Trail - Big Aspen Connection', 'St. Louis', 18, 0, 0, 0, 0, 0, 'Closed', 'Check DNR website', '2026-04-11', ''),
+        (110, 'Taconite State Trail - Big Aspen Connection', 'St. Louis', 18, 0, 0, 0, 0, 0, 'Closed', '', '2026-04-11', ''),
         (30, 'Thistledew Trails', 'Itasca', 25, 0, 25, 0, 0, 0, 'Closed', 'Check George Washington State Forest', '2026-04-11', ''),
         (101, 'Timber Frear Loop', 'Cook', 20, 0, 0, 0, 0, 0, 'Closed', '', '2026-04-11', ''),
         (105, 'Timber Trails', 'Beltrami', 114, 0, 114, 0, 0, 0, 'Closed', 'Check Blackduck & Buena Vista State Forests', '2026-04-11', ''),
-        (34, 'Trout Valley Trail', 'Winona', 9, 0, 9, 0, 0, 0, 'Closed', 'Trail closes at sunset October 31 for the season. Check Richard J. Dorer Memorial Hardwood Forest', '2026-04-11', ''),
+        (34, 'Trout Valley Trail', 'Winona', 9, 0, 9, 0, 0, 0, 'Closed', 'Trail closes at sunset October 31 for the season.', '2026-04-11', ''),
         (115, 'Turkey Time Trail', 'St. Louis', 16, 16, 16, 10, 0, 0, 'OPEN', 'Check Fond du Lac State Forest', '2026-04-11', ''),
         (62, 'UPM Blandin Trail', 'Itasca', 21, 21, 21, 0, 0, 0, 'Closed', 'Check Hill River State Forest', '2026-04-11', ''),
         (117, 'Voyageur Country ATV', 'Lake', 36, 36, 36, 0, 0, 0, 'Closed', 'Check Kabetogama State Forest', '2026-04-11', ''),
-        (68, 'Warroad/Roseau Trails', 'Roseau', 89, 89, 85, 0, 0, 82, 'ATVs not allowed on groomed snowmobile trails', 'Check Beltrami Island State Forest', '2026-04-11', ''),
+        (68, 'Warroad/Roseau Trails', 'Roseau', 89, 89, 85, 0, 0, 82, 'Closed', 'ATVs not allowed on groomed snowmobile trails. Check Beltrami Island State Forest', '2026-04-11', ''),
         (77, 'Wild Country Trail', 'Lake', 30, 0, 30, 13, 0, 0, 'Closed', 'Check Finland State Forest', '2026-04-11', ''),
         (129, 'Wilderness Trail', 'Itasca', 60, 0, 60, 0, 0, 0, 'Closed', '', '2026-04-11', ''),
         (67, 'Wilton Trails Northwest', 'Beltrami', 37, 37, 37, 0, 0, 0, 'Closed', 'Check Mississippi Headwaters State Forest', '2026-04-11', ''),
     ]
-    
-    # Insert trail data
-    for trail in trails:
+
+    for t in trails:
+        trail_id = t[0]
+        dnr_url = f"{DNR_BASE}{trail_id}"
         cursor.execute('''
-            INSERT OR REPLACE INTO trails 
-            (trail_id, name, counties, miles, atv_miles, ohv_miles, ohm_miles, morv_miles, winter_miles, status, status_notes, last_updated, normal_season)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', trail)
-    
+            INSERT OR REPLACE INTO trails
+            (trail_id, name, counties, miles, atv_miles, ohv_miles, ohm_miles, morv_miles,
+             winter_miles, status, status_notes, last_updated, normal_season, dnr_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', t + (dnr_url,))
+
     conn.commit()
     conn.close()
-    
-    print(f"Successfully initialized database with {len(trails)} trails at {DATABASE}")
+    print(f"Initialized database with {len(trails)} trails at {DATABASE}")
+
 
 if __name__ == '__main__':
     init_database()

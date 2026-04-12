@@ -1,12 +1,12 @@
 version: "3.8"
 
 services:
-  ohv-trail-dashboard:
+  ohv-dashboard:
     build: .
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data
+      - ./data:/app/data        # database persists on host
       - ./templates:/app/templates
     restart: unless-stopped
     healthcheck:
@@ -15,14 +15,15 @@ services:
       timeout: 10s
       retries: 3
 
-  ohv-trail-scraper:
+  ohv-scraper:
     build: .
-    command: python scraper.py
+    command: python scheduler.py
     volumes:
-      - ./data:/app/data
+      - ./data:/app/data        # shares the same database
       - ./templates:/app/templates
     environment:
-      - SCRAPER_SCHEDULE=0 6 * * *
-    restart: "no"
+      - SCRAPE_INTERVAL_HOURS=12  # minimum is 12 hours — do not set lower
+      - DATABASE_PATH=/app/data/trails.db
+    restart: unless-stopped     # restart if it crashes
     depends_on:
-      - ohv-trail-dashboard
+      - ohv-dashboard

@@ -3,207 +3,337 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OHV Trail Dashboard - Minnesota</title>
+    <title>Minnesota OHV Trail Dashboard</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #333; line-height: 1.6; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        header { background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%); color: white; padding: 30px 0; margin-bottom: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        header h1 { font-size: 2.5rem; margin-bottom: 10px; font-weight: 700; }
-        header p { font-size: 1.1rem; opacity: 0.9; }
-        .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .stat-card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center; transition: transform 0.2s; }
-        .stat-card:hover { transform: translateY(-2px); }
-        .stat-card h3 { font-size: 2rem; margin-bottom: 5px; }
-        .stat-card.open { border-left: 4px solid #27ae60; }
-        .stat-card.closed { border-left: 4px solid #e74c3c; }
-        .stat-card.limited { border-left: 4px solid #f39c12; }
-        .stat-card.total { border-left: 4px solid #3498db; }
-        .stat-card.open h3 { color: #27ae60; }
-        .stat-card.closed h3 { color: #e74c3c; }
-        .stat-card.limited h3 { color: #f39c12; }
-        .stat-card.total h3 { color: #3498db; }
-        .stat-card p { color: #666; font-size: 0.9rem; }
-        .controls { background: white; padding: 20px; border-radius: 10px; margin-bottom: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
-        .search-box { flex: 1; min-width: 300px; }
-        .search-box input { width: 100%; padding: 12px 20px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1rem; }
-        .search-box input:focus { outline: none; border-color: #3498db; }
-        .filters { display: flex; gap: 10px; flex-wrap: wrap; }
-        .filter-btn { padding: 10px 20px; border: 2px solid #e0e0e0; background: white; border-radius: 8px; cursor: pointer; font-size: 0.9rem; text-decoration: none; color: #333; }
-        .filter-btn:hover { background: #f5f7fa; border-color: #3498db; }
-        .filter-btn.active { background: #3498db; color: white; border-color: #3498db; }
-        .export-btn { padding: 12px 24px; background: #27ae60; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; text-decoration: none; }
-        .export-btn:hover { background: #219a52; }
-        .trails-table { background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        table { width: 100%; border-collapse: collapse; }
-        thead { background: #f8f9fa; }
-        th { padding: 15px 20px; text-align: left; font-weight: 600; font-size: 0.9rem; color: #555; cursor: pointer; }
-        th:hover { background: #e9ecef; }
-        td { padding: 15px 20px; border-bottom: 1px solid #f0f0f0; }
-        tr:hover { background: #f8f9fa; }
-        .status-open { color: #27ae60; font-weight: 600; background: rgba(39, 174, 96, 0.1); padding: 5px 10px; border-radius: 4px; }
-        .status-closed { color: #e74c3c; font-weight: 600; background: rgba(231, 76, 60, 0.1); padding: 5px 10px; border-radius: 4px; }
-        .status-limited { color: #f39c12; font-weight: 600; background: rgba(243, 156, 18, 0.1); padding: 5px 10px; border-radius: 4px; }
-        .status-unknown { color: #95a5a6; font-weight: 600; background: rgba(149, 165, 166, 0.1); padding: 5px 10px; border-radius: 4px; }
-        .trail-name { font-weight: 600; color: #2c3e50; }
-        .distance { color: #3498db; font-weight: 600; }
-        .no-results { text-align: center; padding: 40px; color: #666; font-size: 1.1rem; }
-        footer { text-align: center; padding: 30px; color: #666; font-size: 0.9rem; margin-top: 30px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #222; line-height: 1.5; }
+
+        /* Header */
+        header { background: linear-gradient(135deg, #1a2a3a 0%, #2563eb 100%); color: white; padding: 24px 0; box-shadow: 0 2px 12px rgba(0,0,0,0.2); }
+        header .inner { max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+        header .title-block h1 { font-size: 2rem; font-weight: 700; margin-bottom: 4px; }
+        header .title-block p { font-size: 1rem; opacity: 0.85; }
+        #last-updated { font-size: 0.78rem; opacity: 0.65; margin-top: 6px; }
+
+        /* Location widget */
+        .location-widget { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 12px 16px; min-width: 260px; }
+        .location-widget label { display: block; font-size: 0.75rem; opacity: 0.8; margin-bottom: 6px; letter-spacing: 0.04em; text-transform: uppercase; }
+        .location-row { display: flex; gap: 6px; align-items: center; }
+        .location-row input { flex: 1; padding: 7px 10px; border-radius: 6px; border: none; font-size: 0.9rem; background: rgba(255,255,255,0.9); color: #222; width: 100px; }
+        .location-row input:focus { outline: 2px solid #fff; }
+        .btn-locate { padding: 7px 10px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); border-radius: 6px; color: white; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
+        .btn-locate:hover { background: rgba(255,255,255,0.3); }
+        #location-status { font-size: 0.75rem; opacity: 0.75; margin-top: 6px; min-height: 14px; }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 24px 20px; }
+
+        /* Stats */
+        .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .stat-card { background: white; padding: 18px 20px; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.08); text-align: center; }
+        .stat-card h3 { font-size: 2.2rem; font-weight: 700; margin-bottom: 2px; }
+        .stat-card p { font-size: 0.85rem; color: #666; }
+        .stat-card.open   { border-top: 4px solid #16a34a; } .stat-card.open h3   { color: #16a34a; }
+        .stat-card.closed { border-top: 4px solid #dc2626; } .stat-card.closed h3 { color: #dc2626; }
+        .stat-card.limited{ border-top: 4px solid #d97706; } .stat-card.limited h3{ color: #d97706; }
+        .stat-card.total  { border-top: 4px solid #2563eb; } .stat-card.total h3  { color: #2563eb; }
+
+        /* Controls */
+        .controls { background: white; padding: 16px 20px; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.08); margin-bottom: 20px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+        .search-box { flex: 1; min-width: 260px; }
+        .search-box input { width: 100%; padding: 10px 16px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 0.95rem; }
+        .search-box input:focus { outline: none; border-color: #2563eb; }
+        .filters { display: flex; gap: 8px; flex-wrap: wrap; }
+        .filter-btn { padding: 9px 18px; border: 2px solid #e0e0e0; background: white; border-radius: 8px; cursor: pointer; font-size: 0.88rem; text-decoration: none; color: #444; transition: all 0.15s; }
+        .filter-btn:hover { border-color: #2563eb; color: #2563eb; }
+        .filter-btn.active               { background: #2563eb; color: white; border-color: #2563eb; }
+        .filter-btn.active.open-btn      { background: #16a34a; border-color: #16a34a; }
+        .filter-btn.active.closed-btn    { background: #dc2626; border-color: #dc2626; }
+        .filter-btn.active.limited-btn   { background: #d97706; border-color: #d97706; }
+        .export-btn { padding: 10px 20px; background: #16a34a; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 0.88rem; text-decoration: none; white-space: nowrap; }
+        .export-btn:hover { background: #15803d; }
+
+        /* Table */
+        .trails-table { background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 6px rgba(0,0,0,0.08); }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        thead { background: #f8fafc; }
+        th { padding: 13px 16px; text-align: left; font-weight: 600; font-size: 0.82rem; color: #555; cursor: pointer; user-select: none; white-space: nowrap; border-bottom: 2px solid #e8eaed; }
+        th:hover { background: #eef2f7; }
+        td { padding: 12px 16px; border-bottom: 1px solid #f0f2f5; vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover { background: #f8fafc; }
+
+        .trail-name a { font-weight: 600; color: #1a2a3a; text-decoration: none; }
+        .trail-name a:hover { color: #2563eb; text-decoration: underline; }
+        .status-notes { display: block; font-size: 0.78rem; color: #666; margin-top: 2px; font-style: italic; line-height: 1.3; }
+
+        /* Status badges */
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-weight: 600; font-size: 0.8rem; white-space: nowrap; }
+        .badge-open    { background: #dcfce7; color: #15803d; }
+        .badge-closed  { background: #fee2e2; color: #b91c1c; }
+        .badge-limited { background: #fef3c7; color: #b45309; }
+        .badge-unknown { background: #f1f5f9; color: #64748b; }
+
+        .btn-directions { display: inline-block; padding: 5px 11px; background: #2563eb; color: white; border-radius: 6px; text-decoration: none; font-size: 0.78rem; white-space: nowrap; }
+        .btn-directions:hover { background: #1d4ed8; }
+
+        .distance-cell { font-weight: 500; font-size: 0.88rem; color: #374151; white-space: nowrap; }
+        .distance-na { color: #9ca3af; font-size: 0.82rem; }
+
+        .no-results { text-align: center; padding: 48px; color: #888; font-size: 1rem; }
+
+        footer { text-align: center; padding: 28px 20px; color: #888; font-size: 0.82rem; margin-top: 8px; }
+        footer a { color: #2563eb; text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        .sort-arrow { opacity: 0.35; margin-left: 2px; }
+        .sort-arrow.active { opacity: 1; }
     </style>
 </head>
 <body>
-    <header>
-        <div class="container">
-            <h1>🚵 Minnesota OHV Trail Dashboard</h1>
-            <p>Real-time trail status information from Minnesota DNR</p>
+<header>
+    <div class="inner">
+        <div class="title-block">
+            <h1>Minnesota OHV Trail Dashboard</h1>
+            <p>Trail status from Minnesota DNR — updated automatically</p>
+            <div id="last-updated">Loading...</div>
         </div>
-    </header>
-
-    <div class="container">
-        <!-- Statistics Bar -->
-        <div class="stats-bar">
-            <div class="stat-card open">
-                <h3 id="stat-open">Loading...</h3>
-                <p>Open Trails</p>
+        <div class="location-widget">
+            <label>Your Location (for distances)</label>
+            <div class="location-row">
+                <input type="text" id="zip-input" placeholder="Zip code" maxlength="10" value="55304">
+                <button class="btn-locate" onclick="useZip()" title="Calculate distances from this zip code">Set Zip</button>
+                <button class="btn-locate" onclick="useGeolocation()" title="Use your current GPS location">&#x2316; GPS</button>
             </div>
-            <div class="stat-card closed">
-                <h3 id="stat-closed">Loading...</h3>
-                <p>Closed Trails</p>
-            </div>
-            <div class="stat-card limited">
-                <h3 id="stat-limited">Loading...</h3>
-                <p>Limited Access</p>
-            </div>
-            <div class="stat-card total">
-                <h3 id="stat-total">Loading...</h3>
-                <p>Total Trails</p>
-            </div>
+            <div id="location-status">Default: Andover, MN (55304)</div>
         </div>
+    </div>
+</header>
 
-        <!-- Controls -->
-        <div class="controls">
-            <div class="search-box">
-                <input type="text" id="search-input" placeholder="🔍 Search trails by name or county..." oninput="handleSearch()">
-            </div>
-            <div class="filters">
-                <a href="?status=all" class="filter-btn {% if status_filter == 'all' %}active{% endif %}">All</a>
-                <a href="?status=open" class="filter-btn {% if status_filter == 'open' %}active{% endif %}">Open Only</a>
-                <a href="?status=closed" class="filter-btn {% if status_filter == 'closed' %}active{% endif %}">Closed</a>
-                <a href="?status=limited" class="filter-btn {% if status_filter == 'limited' %}active{% endif %}">Limited</a>
-            </div>
-            <a href="/api/export?status={{ status_filter or 'all' }}" class="export-btn">📥 Export CSV</a>
-        </div>
-
-        <!-- Trails Table -->
-        <div class="trails-table">
-            <table>
-                <thead>
-                    <tr>
-                        <th onclick="sortTable(0)">Trail Name ↕</th>
-                        <th onclick="sortTable(1)">Counties ↕</th>
-                        <th onclick="sortTable(2)">Miles ↕</th>
-                        <th onclick="sortTable(3)">Distance ↕</th>
-                        <th onclick="sortTable(4)">Status ↕</th>
-                        <th onclick="sortTable(5)">Updated ↕</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% if trails %}
-                        {% for trail in trails %}
-                        <tr>
-                            <td class="trail-name">{{ trail.name }}</td>
-                            <td>{{ trail.counties }}</td>
-                            <td>{{ trail.miles }} mi</td>
-                            <td class="distance">{{ trail.distance }}</td>
-                            <td>
-                                {% if 'OPEN' in trail.status %}
-                                    <span class="status-open">OPEN ✅</span>
-                                {% elif 'Closed' in trail.status %}
-                                    <span class="status-closed">Closed ❌</span>
-                                {% elif 'Limited' in trail.status %}
-                                    <span class="status-limited">Limited ⚠️</span>
-                                {% else %}
-                                    <span class="status-unknown">{{ trail.status }}</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ trail.last_updated }}</td>
-                        </tr>
-                        {% endfor %}
-                    {% else %}
-                        <tr>
-                            <td colspan="6" class="no-results">
-                                No trails found. Try adjusting your search or filters.
-                            </td>
-                        </tr>
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
-
-        <footer>
-            <p>Data provided by Minnesota DNR</p>
-            <p style="margin-top: 10px; font-size: 0.85rem;">
-                Note: Status information is for personal use only. Always check official DNR resources before heading out.
-            </p>
-        </footer>
+<div class="container">
+    <!-- Stats -->
+    <div class="stats-bar">
+        <div class="stat-card open">   <h3 id="stat-open">—</h3><p>Open</p></div>
+        <div class="stat-card closed"> <h3 id="stat-closed">—</h3><p>Closed</p></div>
+        <div class="stat-card limited"><h3 id="stat-limited">—</h3><p>Limited</p></div>
+        <div class="stat-card total">  <h3 id="stat-total">—</h3><p>Total</p></div>
     </div>
 
-    <script>
-        let sortDirection = {};
+    <!-- Controls -->
+    <div class="controls">
+        <div class="search-box">
+            <input type="text" id="search-input" placeholder="Search by trail name or county..." oninput="handleSearch()">
+        </div>
+        <div class="filters">
+            <a href="?status=all"     class="filter-btn {% if status_filter == 'all' %}active{% endif %}">All</a>
+            <a href="?status=open"    class="filter-btn open-btn {% if status_filter == 'open' %}active{% endif %}">Open</a>
+            <a href="?status=closed"  class="filter-btn closed-btn {% if status_filter == 'closed' %}active{% endif %}">Closed</a>
+            <a href="?status=limited" class="filter-btn limited-btn {% if status_filter == 'limited' %}active{% endif %}">Limited</a>
+        </div>
+        <a href="/api/export?status={{ status_filter or 'all' }}" class="export-btn">Export CSV</a>
+    </div>
 
-        function sortTable(columnIndex) {
-            const table = document.querySelector('table');
-            const tbody = table.querySelector('tbody');
-            const rows = Array.from(tbody.querySelectorAll('tr'));
-            sortDirection[columnIndex] = !sortDirection[columnIndex];
-            const asc = sortDirection[columnIndex];
-            
-            rows.sort((a, b) => {
-                const cellsA = a.querySelectorAll('td')[columnIndex];
-                const cellsB = b.querySelectorAll('td')[columnIndex];
-                const textA = cellsA.textContent.trim().toLowerCase();
-                const textB = cellsB.textContent.trim().toLowerCase();
-                if (textA < textB) return asc ? -1 : 1;
-                if (textA > textB) return asc ? 1 : -1;
-                return 0;
-            });
-            
-            rows.forEach(row => tbody.appendChild(row));
-            
-            document.querySelectorAll('th').forEach((th, idx) => {
-                th.textContent = th.textContent.replace('↕', '');
-                if (idx === columnIndex) {
-                    th.textContent += asc ? ' ↑' : ' ↓';
-                }
-            });
-        }
+    <!-- Table -->
+    <div class="trails-table">
+        <table id="trails-table">
+            <thead>
+                <tr>
+                    <th onclick="sortTable(0)">Trail Name <span class="sort-arrow" id="arrow-0">↕</span></th>
+                    <th onclick="sortTable(1)">Counties <span class="sort-arrow" id="arrow-1">↕</span></th>
+                    <th onclick="sortTable(2)">Trail Miles <span class="sort-arrow" id="arrow-2">↕</span></th>
+                    <th onclick="sortTable(3)">Distance <span class="sort-arrow" id="arrow-3">↕</span></th>
+                    <th onclick="sortTable(4)">Status <span class="sort-arrow" id="arrow-4">↕</span></th>
+                    <th onclick="sortTable(5)">Updated <span class="sort-arrow" id="arrow-5">↕</span></th>
+                    <th>Directions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if trails %}
+                    {% for trail in trails %}
+                    <tr data-lat="{{ trail.trail_lat or '' }}" data-lng="{{ trail.trail_lng or '' }}" data-name="{{ trail.name | e }}">
+                        <td class="trail-name">
+                            <a href="{{ trail.dnr_url }}" target="_blank" rel="noopener">{{ trail.name }}</a>
+                            {% if trail.status_notes %}
+                                <span class="status-notes">{{ trail.status_notes }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ trail.counties or '—' }}</td>
+                        <td>{{ trail.miles if trail.miles else '—' }}</td>
+                        <td class="distance-cell">—</td>
+                        <td>
+                            {% set s = trail.status_display %}
+                            {% if s == 'OPEN' %}
+                                <span class="badge badge-open">OPEN</span>
+                            {% elif s == 'Closed' %}
+                                <span class="badge badge-closed">Closed</span>
+                            {% elif s == 'Limited' %}
+                                <span class="badge badge-limited">Limited</span>
+                            {% else %}
+                                <span class="badge badge-unknown">{{ trail.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ trail.last_updated or '—' }}</td>
+                        <td><a class="btn-directions" href="#" target="_blank" rel="noopener">Directions</a></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr><td colspan="7" class="no-results">No trails found. Try adjusting your filters.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
 
-        function handleSearch() {
-            const searchTerm = document.getElementById('search-input').value.toLowerCase();
-            const rows = document.querySelectorAll('tbody tr');
-            rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(searchTerm) ? '' : 'none';
-            });
-        }
+    <footer>
+        Data source: <a href="https://www.dnr.state.mn.us/ohv/index.html" target="_blank">Minnesota DNR — Off-Highway Vehicle Trails</a><br>
+        <span style="margin-top:6px;display:block;">Always verify trail status with the official DNR source before heading out.</span>
+    </footer>
+</div>
 
-        async function loadStats() {
-            try {
-                const response = await fetch('/api/stats');
-                const stats = await response.json();
-                document.getElementById('stat-open').textContent = stats.open;
-                document.getElementById('stat-closed').textContent = stats.closed;
-                document.getElementById('stat-limited').textContent = stats.limited || 0;
-                document.getElementById('stat-total').textContent = stats.total;
-            } catch (error) {
-                console.error('Error loading stats:', error);
-                document.getElementById('stat-open').textContent = '0';
-                document.getElementById('stat-closed').textContent = '0';
-                document.getElementById('stat-total').textContent = '0';
+<script>
+    // ── User location state ──────────────────────────────────────────────────
+    // Default: Andover, MN 55304
+    let userLat = 45.2330;
+    let userLng = -93.3508;
+    let locationLabel = 'Andover, MN (55304)';
+
+    // ── Haversine straight-line distance (miles) ─────────────────────────────
+    function haversine(lat1, lng1, lat2, lng2) {
+        const R = 3958.8; // Earth radius in miles
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 +
+                  Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLng/2)**2;
+        return R * 2 * Math.asin(Math.sqrt(a));
+    }
+
+    // ── Update every row's distance cell and directions link ─────────────────
+    function updateDistances() {
+        document.querySelectorAll('#trails-table tbody tr[data-lat]').forEach(row => {
+            const lat = parseFloat(row.dataset.lat);
+            const lng = parseFloat(row.dataset.lng);
+            const distCell = row.querySelector('.distance-cell');
+            const dirLink  = row.querySelector('.btn-directions');
+            const name     = row.dataset.name || '';
+
+            if (lat && lng) {
+                const miles = haversine(userLat, userLng, lat, lng);
+                distCell.textContent = `~${Math.round(miles)} mi`;
+                distCell.classList.remove('distance-na');
+                // Directions: origin = user location, destination = trail coords
+                dirLink.href = `https://www.google.com/maps/dir/?api=1&origin=${userLat},${userLng}&destination=${lat},${lng}`;
+            } else {
+                distCell.innerHTML = '<span class="distance-na">—</span>';
+                // No coords: fall back to name-based destination search
+                const dest = encodeURIComponent(name + ' Minnesota');
+                dirLink.href = `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
             }
-        }
+        });
+    }
 
-        loadStats();
-    </script>
+    // ── Set location and refresh ──────────────────────────────────────────────
+    function setLocation(lat, lng, label) {
+        userLat = lat;
+        userLng = lng;
+        locationLabel = label;
+        document.getElementById('location-status').textContent = label;
+        updateDistances();
+    }
+
+    // ── Zip code → coordinates via OpenStreetMap Nominatim (free, no key) ────
+    async function useZip() {
+        const zip = document.getElementById('zip-input').value.trim();
+        if (!zip) return;
+        const status = document.getElementById('location-status');
+        status.textContent = 'Looking up zip code...';
+        try {
+            const url = `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(zip)}&country=US&format=json&limit=1`;
+            const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+            const data = await resp.json();
+            if (data.length === 0) { status.textContent = 'Zip code not found — try again.'; return; }
+            const lat = parseFloat(data[0].lat);
+            const lng = parseFloat(data[0].lon);
+            const place = data[0].display_name.split(',').slice(0, 2).join(',').trim();
+            setLocation(lat, lng, `${zip} — ${place}`);
+        } catch (e) {
+            status.textContent = 'Could not look up zip — check your connection.';
+        }
+    }
+
+    // Allow pressing Enter in zip field
+    document.getElementById('zip-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') useZip();
+    });
+
+    // ── Browser GPS geolocation ───────────────────────────────────────────────
+    function useGeolocation() {
+        if (!navigator.geolocation) {
+            document.getElementById('location-status').textContent = 'Geolocation not supported by your browser.';
+            return;
+        }
+        document.getElementById('location-status').textContent = 'Requesting GPS location...';
+        navigator.geolocation.getCurrentPosition(
+            pos => {
+                const lat = pos.coords.latitude;
+                const lng = pos.coords.longitude;
+                setLocation(lat, lng, `GPS location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+            },
+            err => {
+                document.getElementById('location-status').textContent = 'GPS denied — using zip code instead.';
+            }
+        );
+    }
+
+    // ── Sort ──────────────────────────────────────────────────────────────────
+    let sortCol = -1, sortAsc = true;
+    function sortTable(col) {
+        const tbody = document.querySelector('#trails-table tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        if (rows.length === 1 && rows[0].querySelector('.no-results')) return;
+        sortAsc = (col === sortCol) ? !sortAsc : true;
+        sortCol = col;
+        rows.sort((a, b) => {
+            const ta = (a.querySelectorAll('td')[col]?.textContent ?? '').trim().toLowerCase().replace(/[~,mi\s]/g, '');
+            const tb = (b.querySelectorAll('td')[col]?.textContent ?? '').trim().toLowerCase().replace(/[~,mi\s]/g, '');
+            const na = parseFloat(ta), nb = parseFloat(tb);
+            if (!isNaN(na) && !isNaN(nb)) return sortAsc ? na - nb : nb - na;
+            if (ta < tb) return sortAsc ? -1 : 1;
+            if (ta > tb) return sortAsc ? 1 : -1;
+            return 0;
+        });
+        rows.forEach(r => tbody.appendChild(r));
+        document.querySelectorAll('.sort-arrow').forEach((el, i) => { el.textContent = '↕'; el.classList.remove('active'); });
+        const arrow = document.getElementById(`arrow-${col}`);
+        if (arrow) { arrow.textContent = sortAsc ? '↑' : '↓'; arrow.classList.add('active'); }
+    }
+
+    // ── Search ────────────────────────────────────────────────────────────────
+    function handleSearch() {
+        const term = document.getElementById('search-input').value.toLowerCase();
+        document.querySelectorAll('#trails-table tbody tr').forEach(row => {
+            if (row.querySelector('.no-results')) return;
+            row.style.display = row.textContent.toLowerCase().includes(term) ? '' : 'none';
+        });
+    }
+
+    // ── Stats ─────────────────────────────────────────────────────────────────
+    async function loadStats() {
+        try {
+            const r = await fetch('/api/stats');
+            const s = await r.json();
+            document.getElementById('stat-open').textContent    = s.open    ?? 0;
+            document.getElementById('stat-closed').textContent  = s.closed  ?? 0;
+            document.getElementById('stat-limited').textContent = s.limited ?? 0;
+            document.getElementById('stat-total').textContent   = s.total   ?? 0;
+            if (s.last_updated) {
+                document.getElementById('last-updated').textContent = `Data last updated: ${s.last_updated}`;
+            }
+        } catch (e) {
+            document.getElementById('last-updated').textContent = 'Could not load stats';
+        }
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    loadStats();
+    updateDistances(); // render with default location on load
+</script>
 </body>
 </html>
