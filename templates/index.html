@@ -421,14 +421,9 @@
         const now = new Date();
         const target = new Date(targetISO);
         const diffMs = target - now;
-        if (diffMs <= 0) return 'update running soon';
-        const totalMins = Math.floor(diffMs / 60000);
-        const hours = Math.floor(totalMins / 60);
-        const mins  = totalMins % 60;
-        if (hours > 0 && mins > 0) return `next update in ${hours}h ${mins}m`;
-        if (hours > 0)             return `next update in ${hours}h`;
-        if (mins > 0)              return `next update in ${mins}m`;
-        return 'update running soon';
+        if (diffMs <= 0) return 'Update running now';
+        const hours = Math.ceil(diffMs / 3600000);
+        return `Updates in ${hours} hour${hours !== 1 ? 's' : ''}`;
     }
 
     function tickCountdown() {
@@ -451,13 +446,12 @@
             if (s.next_scrape) {
                 nextScrapeTime = s.next_scrape;
                 tickCountdown();
-                // Tick every minute so the countdown stays current
                 setInterval(tickCountdown, 60000);
             } else {
-                document.getElementById('next-update-label').textContent = 'updated automatically';
+                document.getElementById('next-update-label').textContent = 'updates in 12 hours';
             }
         } catch (e) {
-            document.getElementById('next-update-label').textContent = 'updated automatically';
+            document.getElementById('next-update-label').textContent = 'updates in 12 hours';
         }
     }
 
