@@ -19,7 +19,7 @@ import os
 import time
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 NEXT_SCRAPE_FILE = os.environ.get(
@@ -51,12 +51,12 @@ if __name__ == '__main__':
     print(f"[scheduler] Starting — will scrape every {INTERVAL_HOURS} hour(s)", flush=True)
     while True:
         run_scraper()
-        next_run = datetime.fromtimestamp(time.time() + INTERVAL_SECONDS)
+        next_run = datetime.fromtimestamp(time.time() + INTERVAL_SECONDS, tz=timezone.utc)
         # Write the next run time so the dashboard can show a countdown
         try:
             with open(NEXT_SCRAPE_FILE, 'w') as f:
-                f.write(next_run.strftime('%Y-%m-%dT%H:%M:%S') + '\n')
+                f.write(next_run.strftime('%Y-%m-%dT%H:%M:%SZ') + '\n')
         except Exception as e:
             print(f"[scheduler] Could not write next scrape time: {e}", flush=True)
-        print(f"[scheduler] Next run at {next_run.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
+        print(f"[scheduler] Next run at {next_run.strftime('%Y-%m-%d %H:%M:%S')} UTC", flush=True)
         time.sleep(INTERVAL_SECONDS)
