@@ -27,3 +27,5 @@ services:
     restart: unless-stopped     # restart if it crashes
     depends_on:
       - ohv-dashboard
+    healthcheck:
+      disable: true             # scraper has no web server to check
