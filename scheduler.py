@@ -55,7 +55,7 @@ if __name__ == '__main__':
         # Write the next run time so the dashboard can show a countdown
         try:
             with open(NEXT_SCRAPE_FILE, 'w') as f:
-                f.write(next_run.strftime('%Y-%m-%dT%H:%M:%S'))
+                f.write(next_run.strftime('%Y-%m-%dT%H:%M:%S') + '\n')
         except Exception as e:
             print(f"[scheduler] Could not write next scrape time: {e}", flush=True)
         print(f"[scheduler] Next run at {next_run.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
