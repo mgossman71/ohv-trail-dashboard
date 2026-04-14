@@ -160,8 +160,8 @@
     <div class="inner">
         <div class="title-block">
             <h1>Minnesota OHV Trail Dashboard</h1>
-            <p>Trail status from Minnesota DNR — updated automatically</p>
-            <div id="last-updated">Loading...</div>
+            <p>Trail status from Minnesota DNR — <span id="next-update-label">loading...</span></p>
+            <div id="last-updated"></div>
         </div>
         <div class="location-widget">
             <label>Your Location (for distances)</label>
@@ -414,6 +414,28 @@
         });
     }
 
+    // ── Next-update countdown ─────────────────────────────────────────────────
+    let nextScrapeTime = null;
+
+    function formatCountdown(targetISO) {
+        const now = new Date();
+        const target = new Date(targetISO);
+        const diffMs = target - now;
+        if (diffMs <= 0) return 'update running soon';
+        const totalMins = Math.floor(diffMs / 60000);
+        const hours = Math.floor(totalMins / 60);
+        const mins  = totalMins % 60;
+        if (hours > 0 && mins > 0) return `next update in ${hours}h ${mins}m`;
+        if (hours > 0)             return `next update in ${hours}h`;
+        if (mins > 0)              return `next update in ${mins}m`;
+        return 'update running soon';
+    }
+
+    function tickCountdown() {
+        if (!nextScrapeTime) return;
+        document.getElementById('next-update-label').textContent = formatCountdown(nextScrapeTime);
+    }
+
     // ── Stats ─────────────────────────────────────────────────────────────────
     async function loadStats() {
         try {
@@ -426,8 +448,16 @@
             if (s.last_updated) {
                 document.getElementById('last-updated').textContent = `Data last updated: ${s.last_updated}`;
             }
+            if (s.next_scrape) {
+                nextScrapeTime = s.next_scrape;
+                tickCountdown();
+                // Tick every minute so the countdown stays current
+                setInterval(tickCountdown, 60000);
+            } else {
+                document.getElementById('next-update-label').textContent = 'updated automatically';
+            }
         } catch (e) {
-            document.getElementById('last-updated').textContent = 'Could not load stats';
+            document.getElementById('next-update-label').textContent = 'updated automatically';
         }
     }
 

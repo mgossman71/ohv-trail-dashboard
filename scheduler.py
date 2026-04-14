@@ -21,6 +21,12 @@ import subprocess
 import sys
 from datetime import datetime
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+NEXT_SCRAPE_FILE = os.environ.get(
+    'NEXT_SCRAPE_FILE',
+    os.path.join(BASE_DIR, 'data', 'next_scrape.txt')
+)
+
 MIN_INTERVAL_HOURS = 12  # Hard floor — do not lower. Respects the DNR website.
 _requested = int(os.environ.get('SCRAPE_INTERVAL_HOURS', '12'))
 INTERVAL_HOURS = max(MIN_INTERVAL_HOURS, _requested)
@@ -46,5 +52,11 @@ if __name__ == '__main__':
     while True:
         run_scraper()
         next_run = datetime.fromtimestamp(time.time() + INTERVAL_SECONDS)
+        # Write the next run time so the dashboard can show a countdown
+        try:
+            with open(NEXT_SCRAPE_FILE, 'w') as f:
+                f.write(next_run.strftime('%Y-%m-%dT%H:%M:%S'))
+        except Exception as e:
+            print(f"[scheduler] Could not write next scrape time: {e}", flush=True)
         print(f"[scheduler] Next run at {next_run.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
         time.sleep(INTERVAL_SECONDS)

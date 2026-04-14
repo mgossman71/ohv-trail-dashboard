@@ -232,6 +232,9 @@ def api_trails():
     return jsonify(trails_query(status_filter=status_filter))
 
 
+NEXT_SCRAPE_FILE = os.path.join(os.path.dirname(DATABASE), 'next_scrape.txt')
+
+
 @app.route('/api/stats')
 def api_stats():
     conn = get_db()
@@ -245,12 +248,21 @@ def api_stats():
     last_updated = conn.execute("SELECT MAX(last_updated) FROM trails").fetchone()[0]
     conn.close()
 
+    # Read next scrape time written by scheduler.py
+    next_scrape = None
+    try:
+        with open(NEXT_SCRAPE_FILE) as f:
+            next_scrape = f.read().strip()
+    except FileNotFoundError:
+        pass
+
     return jsonify({
         'total': total,
         'open': open_count,
         'closed': closed_count,
         'limited': limited_count,
         'last_updated': last_updated,
+        'next_scrape': next_scrape,
     })
 
 
