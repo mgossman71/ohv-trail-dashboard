@@ -73,7 +73,9 @@ def init_db():
             status_notes TEXT,
             last_updated DATE,
             normal_season TEXT,
-            dnr_url TEXT
+            dnr_url TEXT,
+            latitude REAL,
+            longitude REAL
         )
     ''')
     conn.execute('''
@@ -86,11 +88,19 @@ def init_db():
             FOREIGN KEY (trail_id) REFERENCES trails(trail_id)
         )
     ''')
-    # Add dnr_url column to existing databases that don't have it
+    # Add columns to existing databases that don't have them
     try:
         conn.execute('ALTER TABLE trails ADD COLUMN dnr_url TEXT')
     except Exception:
         pass  # Column already exists
+    try:
+        conn.execute('ALTER TABLE trails ADD COLUMN latitude REAL')
+    except Exception:
+        pass
+    try:
+        conn.execute('ALTER TABLE trails ADD COLUMN longitude REAL')
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
