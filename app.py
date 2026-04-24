@@ -25,6 +25,7 @@ import os
 import csv
 import io
 import sqlite3
+import hashlib
 from flask import Flask, render_template, request, jsonify
 
 # Portable paths — override DATABASE_PATH env var when running outside Docker
@@ -165,18 +166,45 @@ def build_trail_dict(row):
     """
     Convert a sqlite3.Row into a plain dict and attach computed fields:
         dnr_url         Full URL to the trail's DNR detail page.
-        trail_lat/lng   Approximate coordinates from get_county_coords(),
-                        used by the frontend for distance calculation.
+        trail_lat/lng   Coordinates from the database (geocoded or county
+                        center fallback), used by the frontend for distance
+                        calculation and map markers.
         status_display  Canonical status string from normalize_status().
     """
     d = dict(row)
     if not d.get('dnr_url') and d.get('trail_id'):
         d['dnr_url'] = f"https://www.dnr.state.mn.us/ohv/trail_detail.html?id={d['trail_id']}"
-    # Coordinates for client-side distance calculation
-    county_coords = get_county_coords()
-    coords = county_coords.get(d.get('counties', ''))
-    d['trail_lat'] = coords[0] if coords else None
-    d['trail_lng'] = coords[1] if coords else None
+
+    # Use database coordinates (from geocode_trails.py) when available,
+    # otherwise fall back to county center coordinates.
+    lat = d.get('latitude')
+    lng = d.get('longitude')
+    if lat is None or lng is None:
+        county_coords = get_county_coords()
+        counties = d.get('counties', '')
+        coords = county_coords.get(counties)
+        if not coords and counties:
+            # Try first county for multi-county trails
+            first_county = counties.split(',')[0].strip()
+            coords = county_coords.get(first_county)
+        lat = coords[0] if coords else None
+        lng = coords[1] if coords else None
+
+    # For trails still at county-center coordinates (no geocoded position),
+    # add a small deterministic jitter so overlapping markers don't stack perfectly
+    # on the map. Uses the trail name as a seed for consistency across loads.
+    # Only jitter when coordinates match a county center (2 decimal places).
+    is_county_center = (lat is not None and lng is not None
+                        and round(lat, 2) == lat and round(lng, 2) == lng)
+    if is_county_center:
+        jitter_seed = hashlib.md5(d.get('name', '').encode()).hexdigest()
+        jitter_lat = (int(jitter_seed[:8], 16) / 0xFFFFFFFF - 0.5) * 0.04  # ±0.02° (~2 km)
+        jitter_lng = (int(jitter_seed[8:16], 16) / 0xFFFFFFFF - 0.5) * 0.04
+        lat = round(lat + jitter_lat, 5)
+        lng = round(lng + jitter_lng, 5)
+
+    d['trail_lat'] = lat
+    d['trail_lng'] = lng
     d['status_display'] = normalize_status(d.get('status', ''))
     return d
 
@@ -196,7 +224,7 @@ def trails_query(status_filter='all', query=''):
     sql = '''
         SELECT trail_id, name, counties, miles, atv_miles, ohv_miles,
                ohm_miles, morv_miles, winter_miles, status, status_notes,
-               last_updated, normal_season, dnr_url
+               last_updated, normal_season, dnr_url, latitude, longitude
         FROM trails WHERE 1=1
     '''
     params = []
