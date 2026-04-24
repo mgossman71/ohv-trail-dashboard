@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py scraper.py init_db.py scheduler.py ./
+COPY app.py scraper.py init_db.py scheduler.py geo_utils.py geocode_trails.py ./
 COPY templates/ templates/
 
 # Seed the database at build time so the app has data on first start.
