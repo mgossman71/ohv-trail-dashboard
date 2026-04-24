@@ -32,6 +32,7 @@ Scheduled automatically:
 """
 
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -54,6 +55,14 @@ HEADERS = {
 # How long to wait between individual trail detail page requests (seconds)
 REQUEST_DELAY = 0.5
 
+# Nominatim geocoding (OpenStreetMap, free, no API key)
+NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
+NOMINATIM_HEADERS = {
+    'User-Agent': 'OHV-Trail-Dashboard/1.0 (geocoding; personal use)',
+}
+# How long to wait between Nominatim requests (usage policy requires >=1s)
+GEOCODE_DELAY = 1.0
+
 
 def get_db():
     """Return a sqlite3 connection, exiting with an error if the database is missing."""
@@ -63,6 +72,115 @@ def get_db():
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def extract_location_info(soup):
+    """
+    Extract location text and facility cities from a parsed DNR detail page.
+
+    Returns (location_text, facilities_cities) where location_text is the raw
+    text from the 'Location' section and facilities_cities is a list of
+    city names from the 'Facilities' section.
+    """
+    main = soup.find(id='main_page_content') or soup.find('main') or soup.body
+    if not main:
+        return None, []
+
+    location_text = ''
+    facilities_cities = []
+
+    for h4 in main.find_all('h4'):
+        header_text = h4.get_text(strip=True).lower()
+        if header_text == 'location':
+            sib = h4.find_next_sibling()
+            while sib and sib.name not in ('h4', 'h3', 'h2'):
+                text = sib.get_text(strip=True)
+                if text:
+                    location_text += text + ' '
+                sib = sib.find_next_sibling()
+        elif header_text == 'facilities':
+            sib = h4.find_next_sibling()
+            while sib and sib.name not in ('h4', 'h3', 'h2'):
+                t = sib.get_text(strip=True)
+                if t and len(t) < 30 and t.lower() not in (
+                    'food', 'restroom', 'gas', 'lodging', 'camping'
+                ):
+                    facilities_cities.append(t)
+                sib = sib.find_next_sibling()
+
+    return location_text.strip() if location_text else None, facilities_cities
+
+
+def build_geocode_query(trail_name, location_text, facilities_cities, county):
+    """
+    Build a Nominatim geocode query from the trail's DNR location info.
+
+    Priority:
+    1. Specific city/place mentioned in the location description
+    2. First city from facilities list
+    3. County name as fallback
+    """
+    # Clean up location text — remove contact info
+    loc = re.sub(r'\d{3}-\d{3}-\d{4}', '', location_text)
+    loc = re.sub(r'[\w.+-]+@[\w-]+\.[\w.]+', '', loc)
+
+    # Try to find a specific city or place
+    city_patterns = [
+        r'(?:In|From|in|from|Parking (?:is )?(?:available )?in)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',
+        r'(?:at|near|outside of|west of|east of|north of|south of)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',
+    ]
+    found_cities = []
+    for pattern in city_patterns:
+        matches = re.findall(pattern, loc)
+        found_cities.extend(matches)
+
+    skip_words = {'county', 'state', 'park', 'forest', 'area', 'trail', 'highway',
+                  'intersection', 'mile', 'miles', 'turn', 'go', 'parking', 'available'}
+    found_cities = [c for c in found_cities if c.lower() not in skip_words]
+
+    # Check for "the community/city/town of X"
+    community_match = re.search(
+        r'(?:community|city|town)\s+of\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)', loc
+    )
+    if community_match:
+        found_cities.insert(0, community_match.group(1))
+
+    if not found_cities and facilities_cities:
+        found_cities = [c.split(',')[0].strip() for c in facilities_cities[:1]]
+
+    if found_cities:
+        city = found_cities[0]
+        return f"{city}, {county} County, Minnesota"
+    else:
+        return f"{county} County, Minnesota"
+
+
+def geocode(query, retries=2):
+    """Geocode a query string using Nominatim. Returns (lat, lon) or None."""
+    for attempt in range(retries):
+        try:
+            resp = requests.get(NOMINATIM_URL, params={
+                'q': query,
+                'format': 'json',
+                'limit': 1,
+                'countrycodes': 'us',
+            }, headers=NOMINATIM_HEADERS, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            if data:
+                lat, lon = float(data[0]['lat']), float(data[0]['lon'])
+                # Verify it's in Minnesota
+                if 43.0 <= lat <= 49.5 and -97.5 <= lon <= -89.0:
+                    return lat, lon
+                return None
+            return None
+        except Exception as e:
+            if attempt < retries - 1:
+                time.sleep(2)
+            else:
+                print(f"      Geocode error: {e}")
+                return None
+    return None
 
 
 def normalize_status(raw):
@@ -232,7 +350,8 @@ def scrape_trail_list():
 
 def scrape_trail_status(trail_id):
     """
-    Scrape a single trail detail page for its current open/closed status.
+    Scrape a single trail detail page for its current open/closed status
+    and location info.
 
     Tries three strategies in order:
         1. Look for a heading labelled 'closure', 'status', or 'current' and
@@ -241,8 +360,9 @@ def scrape_trail_status(trail_id):
         3. Full-text scan of the page body for the first occurrence of
            'closed for season', 'closed', 'open', or 'limited'.
 
-    Returns (status, status_notes, normal_season) on success, or None if the
-    page could not be fetched or no status text was found.
+    Returns (status, status_notes, normal_season, location_text, facilities_cities)
+    on success, or None if the page could not be fetched or no status text
+    was found.
     """
     url = f"{DNR_DETAIL_BASE}{trail_id}"
     soup = fetch_page(url)
@@ -253,8 +373,6 @@ def scrape_trail_status(trail_id):
     notes_text = ''
     normal_season = ''
 
-    # DNR detail pages typically have a "Current Status" or "Closures" section
-    # Look for common patterns
     main = soup.find(id='main_page_content') or soup.find('main') or soup.body
 
     if not main:
@@ -264,7 +382,6 @@ def scrape_trail_status(trail_id):
     for heading in main.find_all(['h2', 'h3', 'h4', 'strong', 'dt']):
         text = heading.get_text(strip=True).lower()
         if any(kw in text for kw in ('closure', 'status', 'current')):
-            # Grab the next sibling or parent's next content
             sibling = heading.find_next_sibling()
             if sibling:
                 status_text = sibling.get_text(separator=' ', strip=True)
@@ -286,15 +403,13 @@ def scrape_trail_status(trail_id):
                         status_text = cells[0].get_text(strip=True)
                 break
 
-    # Strategy 3: Search for "open" or "closed" keywords in the page body
+    # Strategy 3: Search for "open" or "closed" keywords
     if not status_text:
         body_text = main.get_text(separator=' ', strip=True)
         lower_body = body_text.lower()
-        # Find first occurrence of status keyword
         for kw in ('closed for season', 'closed', 'open', 'limited'):
             idx = lower_body.find(kw)
             if idx != -1:
-                # Extract a snippet of context
                 snippet = body_text[max(0, idx - 20):idx + 80].strip()
                 status_text = snippet
                 break
@@ -310,12 +425,16 @@ def scrape_trail_status(trail_id):
         return None
 
     norm_status, notes = normalize_status(status_text)
-    return norm_status, notes or notes_text, normal_season
+
+    # Extract location info from the same page
+    location_text, facilities_cities = extract_location_info(soup)
+
+    return norm_status, notes or notes_text, normal_season, location_text, facilities_cities
 
 
-def update_database(trails_from_listing, status_map):
+def update_database(trails_from_listing, status_map, location_map=None):
     """
-    Write scraped trail data and statuses to the database.
+    Write scraped trail data, statuses, and geocoded coordinates to the database.
 
     - Trails already in the database are updated in-place.
     - New trails (not previously seeded) are inserted.
@@ -324,7 +443,11 @@ def update_database(trails_from_listing, status_map):
     - A row is added to status_history whenever a trail's status changes.
     - Trail names from the scrape are never allowed to overwrite a longer
       existing name (protects against DNR abbreviated link text).
+    - If location_map contains geocoded coords for a trail, those are written
+      to latitude/longitude columns.
     """
+    if location_map is None:
+        location_map = {}
     conn = get_db()
     updated = 0
     inserted = 0
@@ -343,6 +466,11 @@ def update_database(trails_from_listing, status_map):
             'SELECT status, name FROM trails WHERE trail_id = ?', (tid,)
         ).fetchone()
 
+        # Get geocoded coordinates if available
+        loc_info = location_map.get(tid)
+        geo_lat = loc_info[2] if loc_info and len(loc_info) > 2 else None
+        geo_lon = loc_info[3] if loc_info and len(loc_info) > 3 else None
+
         if existing:
             old_status = existing['status']
             # Don't overwrite a descriptive name with a bare county name from the listing.
@@ -351,22 +479,43 @@ def update_database(trails_from_listing, status_map):
             existing_name = existing['name']
             use_name = scraped_name if len(scraped_name) > len(existing_name) or not existing_name else existing_name
 
-            conn.execute('''
-                UPDATE trails SET
-                    name = ?, counties = ?, miles = ?, atv_miles = ?,
-                    ohv_miles = ?, ohm_miles = ?, morv_miles = ?,
-                    winter_miles = ?, status = ?, status_notes = ?,
-                    last_updated = ?, dnr_url = ?
-                    {season_clause}
-                WHERE trail_id = ?
-            '''.replace('{season_clause}', ', normal_season = ?' if season else ''), (
-                use_name, trail['counties'], trail['miles'], trail['atv_miles'],
-                trail['ohv_miles'], trail['ohm_miles'], trail['morv_miles'],
-                trail['winter_miles'], status, notes,
-                datetime.now().date(), trail['dnr_url'],
-                *([season] if season else []),
-                tid,
-            ))
+            # Build UPDATE SQL dynamically based on whether we have geocoded coords
+            if geo_lat is not None and geo_lon is not None:
+                conn.execute('''
+                    UPDATE trails SET
+                        name = ?, counties = ?, miles = ?, atv_miles = ?,
+                        ohv_miles = ?, ohm_miles = ?, morv_miles = ?,
+                        winter_miles = ?, status = ?, status_notes = ?,
+                        last_updated = ?, dnr_url = ?,
+                        latitude = ?, longitude = ?
+                        {season_clause}
+                    WHERE trail_id = ?
+                '''.replace('{season_clause}', ', normal_season = ?' if season else ''), (
+                    use_name, trail['counties'], trail['miles'], trail['atv_miles'],
+                    trail['ohv_miles'], trail['ohm_miles'], trail['morv_miles'],
+                    trail['winter_miles'], status, notes,
+                    datetime.now().date(), trail['dnr_url'],
+                    geo_lat, geo_lon,
+                    *([season] if season else []),
+                    tid,
+                ))
+            else:
+                conn.execute('''
+                    UPDATE trails SET
+                        name = ?, counties = ?, miles = ?, atv_miles = ?,
+                        ohv_miles = ?, ohm_miles = ?, morv_miles = ?,
+                        winter_miles = ?, status = ?, status_notes = ?,
+                        last_updated = ?, dnr_url = ?
+                        {season_clause}
+                    WHERE trail_id = ?
+                '''.replace('{season_clause}', ', normal_season = ?' if season else ''), (
+                    use_name, trail['counties'], trail['miles'], trail['atv_miles'],
+                    trail['ohv_miles'], trail['ohm_miles'], trail['morv_miles'],
+                    trail['winter_miles'], status, notes,
+                    datetime.now().date(), trail['dnr_url'],
+                    *([season] if season else []),
+                    tid,
+                ))
             updated += 1
             if old_status != status:
                 conn.execute(
@@ -376,19 +525,35 @@ def update_database(trails_from_listing, status_map):
                 status_changes += 1
                 print(f"  STATUS CHANGE: {use_name} — {old_status} → {status}")
         else:
-            conn.execute('''
-                INSERT INTO trails
-                    (trail_id, name, counties, miles, atv_miles, ohv_miles, ohm_miles,
-                     morv_miles, winter_miles, status, status_notes, last_updated,
-                     normal_season, dnr_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                tid, trail['name'], trail['counties'], trail['miles'],
-                trail['atv_miles'], trail['ohv_miles'], trail['ohm_miles'],
-                trail['morv_miles'], trail['winter_miles'],
-                status, notes, datetime.now().date(),
-                season, trail['dnr_url'],
-            ))
+            # Insert new trail — include geocoded coords if available
+            if geo_lat is not None and geo_lon is not None:
+                conn.execute('''
+                    INSERT INTO trails
+                        (trail_id, name, counties, miles, atv_miles, ohv_miles, ohm_miles,
+                         morv_miles, winter_miles, status, status_notes, last_updated,
+                         normal_season, dnr_url, latitude, longitude)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    tid, trail['name'], trail['counties'], trail['miles'],
+                    trail['atv_miles'], trail['ohv_miles'], trail['ohm_miles'],
+                    trail['morv_miles'], trail['winter_miles'],
+                    status, notes, datetime.now().date(),
+                    season, trail['dnr_url'], geo_lat, geo_lon,
+                ))
+            else:
+                conn.execute('''
+                    INSERT INTO trails
+                        (trail_id, name, counties, miles, atv_miles, ohv_miles, ohm_miles,
+                         morv_miles, winter_miles, status, status_notes, last_updated,
+                         normal_season, dnr_url)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    tid, trail['name'], trail['counties'], trail['miles'],
+                    trail['atv_miles'], trail['ohv_miles'], trail['ohm_miles'],
+                    trail['morv_miles'], trail['winter_miles'],
+                    status, notes, datetime.now().date(),
+                    season, trail['dnr_url'],
+                ))
             inserted += 1
 
     # Remove trails that no longer appear on the DNR listing.
@@ -422,24 +587,53 @@ def run_scraper():
         print("No trails found from listing — aborting.")
         sys.exit(1)
 
-    # Step 2: For each trail, fetch its detail page for current status
-    print(f"\nFetching status for {len(trails)} trails (this takes a minute)...")
+    # Step 2: For each trail, fetch its detail page for current status + location
+    print(f"\nFetching status and location for {len(trails)} trails (this takes a minute)...")
     status_map = {}
+    location_map = {}  # trail_id -> (location_text, facilities_cities)
     for i, trail in enumerate(trails, 1):
         tid = trail['trail_id']
         print(f"  [{i}/{len(trails)}] {trail['name']}", end='... ')
         result = scrape_trail_status(tid)
         if result:
-            status, notes, season = result
+            status, notes, season, loc_text, fac_cities = result
             status_map[tid] = (status, notes, season)
+            if loc_text or fac_cities:
+                location_map[tid] = (loc_text, fac_cities)
             print(status)
         else:
             print("(no status found, keeping existing)")
         time.sleep(REQUEST_DELAY)
 
-    # Step 3: Write to database
+    # Step 3: Geocode trails from DNR location data
+    print(f"\nGeocoding {len(location_map)} trails with location info...")
+    geocoded = 0
+    geocode_failed = 0
+    for tid, (loc_text, fac_cities) in location_map.items():
+        trail_info = next((t for t in trails if t['trail_id'] == tid), None)
+        if not trail_info or not loc_text:
+            continue
+        county = trail_info['counties'].split(',')[0].strip() if trail_info['counties'] else ''
+        query = build_geocode_query(trail_info['name'], loc_text, fac_cities, county)
+        result = geocode(query)
+        time.sleep(GEOCODE_DELAY)
+        if not result and fac_cities:
+            # Retry with just the first facility city
+            simple_query = f"{fac_cities[0].split(',')[0].strip()}, Minnesota"
+            result = geocode(simple_query)
+            time.sleep(GEOCODE_DELAY)
+        if result:
+            lat, lon = result
+            # Store geocoded coords in location_map for DB update
+            location_map[tid] = (loc_text, fac_cities, lat, lon)
+            geocoded += 1
+        else:
+            geocode_failed += 1
+    print(f"  Geocoded: {geocoded} updated, {geocode_failed} failed (keeping existing coords)")
+
+    # Step 3: Write to database (including geocoded coordinates)
     print(f"\nUpdating database...")
-    update_database(trails, status_map)
+    update_database(trails, status_map, location_map)
 
     print(f"\nScrape complete — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
