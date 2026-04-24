@@ -232,7 +232,45 @@ def api_trails():
     return jsonify(trails_query(status_filter=status_filter))
 
 
+@app.route('/api/trails/geo')
+def api_trails_geo():
+    """Return trails as GeoJSON FeatureCollection for the map view."""
+    status_filter = request.args.get('status', 'all')
+    trails = trails_query(status_filter=status_filter)
+    features = []
+    for t in trails:
+        lat = t.get('trail_lat')
+        lng = t.get('trail_lng')
+        if lat is None or lng is None:
+            continue
+        feature = {
+            'type': 'Feature',
+            'geometry': {
+                'type': 'Point',
+                'coordinates': [lng, lat]
+            },
+            'properties': {
+                'trail_id': t.get('trail_id'),
+                'name': t.get('name'),
+                'counties': t.get('counties'),
+                'miles': t.get('miles'),
+                'status': t.get('status'),
+                'status_display': t.get('status_display'),
+                'status_notes': t.get('status_notes'),
+                'dnr_url': t.get('dnr_url'),
+                'last_updated': t.get('last_updated'),
+            }
+        }
+        features.append(feature)
+    return jsonify({'type': 'FeatureCollection', 'features': features})
+
+
 NEXT_SCRAPE_FILE = os.path.join(os.path.dirname(DATABASE), 'next_scrape.txt')
+
+
+@app.route('/map')
+def map_view():
+    return render_template('map.html')
 
 
 @app.route('/api/stats')
