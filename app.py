@@ -89,18 +89,16 @@ def init_db():
         )
     ''')
     # Add columns to existing databases that don't have them
-    try:
-        conn.execute('ALTER TABLE trails ADD COLUMN dnr_url TEXT')
-    except Exception:
-        pass  # Column already exists
-    try:
-        conn.execute('ALTER TABLE trails ADD COLUMN latitude REAL')
-    except Exception:
-        pass
-    try:
-        conn.execute('ALTER TABLE trails ADD COLUMN longitude REAL')
-    except Exception:
-        pass
+    for col, typedef in [
+        ('dnr_url',       'TEXT'),
+        ('latitude',      'REAL'),
+        ('longitude',     'REAL'),
+        ('location_text', 'TEXT'),
+    ]:
+        try:
+            conn.execute(f'ALTER TABLE trails ADD COLUMN {col} {typedef}')
+        except Exception:
+            pass  # Column already exists
     conn.commit()
     conn.close()
 
