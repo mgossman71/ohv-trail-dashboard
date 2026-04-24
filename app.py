@@ -114,7 +114,7 @@ def normalize_status(raw):
     if not raw:
         return 'Unknown'
     s = raw.strip().lower()
-    if s == 'open' or s == 'open':
+    if s == 'open':
         return 'OPEN'
     if 'open' in s and 'limited' not in s:
         return 'OPEN'
@@ -125,51 +125,44 @@ def normalize_status(raw):
     return raw.strip()
 
 
-def get_county_coords():
-    """
-    Approximate geographic center coordinates (lat, lng) for Minnesota counties
-    that contain OHV trails.
-
-    These are used by the dashboard's client-side JavaScript to calculate
-    straight-line distance from the user's location to each trail.  They are
-    county-center estimates, not exact trailhead coordinates, so distances are
-    approximate — useful for a rough "how far away is this?" gauge.
-    """
-    return {
-        'Aitkin':       (46.60, -93.41),
-        'Becker':       (46.93, -95.66),
-        'Beltrami':     (47.97, -94.90),
-        'Carlton':      (46.59, -92.68),
-        'Cass':         (46.95, -94.33),
-        'Clay':         (46.89, -96.50),
-        'Cook':         (47.87, -90.55),
-        'Crow Wing':    (46.50, -94.07),
-        'Fillmore':     (43.67, -92.09),
-        'Grant':        (45.93, -96.02),
-        'Hubbard':      (47.10, -94.92),
-        'Itasca':       (47.50, -93.62),
-        'Koochiching':  (48.22, -93.78),
-        'Lake':         (47.38, -91.39),
-        'Lyon':         (44.41, -95.83),
-        'Marshall':     (48.35, -96.37),
-        'Meeker':       (45.12, -94.52),
-        'Mille Lacs':   (45.95, -93.65),
-        'Morrison':     (46.02, -94.26),
-        'Norman':       (47.33, -96.46),
-        'Pine':         (46.12, -92.72),
-        'Polk':         (47.77, -96.41),
-        'Roseau':       (48.73, -95.85),
-        'St. Louis':    (47.57, -92.49),
-        'Swift':        (45.29, -95.84),
-        'Wabasha':      (44.27, -92.03),
-        'Wadena':       (46.58, -95.00),
-        'Winona':       (43.90, -91.66),
-        # Multi-county trails: use geographic midpoint of the listed counties
-        'Beltrami, Marshall': (48.10, -95.60),
-        'Clay, Norman, Polk': (47.30, -96.45),
-        'Crow Wing, Aitkin':  (46.55, -93.70),
-        'Lake, St. Louis':    (47.47, -91.94),
-    }
+# Approximate geographic center coordinates (lat, lng) for Minnesota counties
+# that contain OHV trails. Used as a fallback when a trail has no geocoded
+# coordinates. County-center estimates — distances are approximate.
+COUNTY_COORDS = {
+    'Aitkin':       (46.60, -93.41),
+    'Becker':       (46.93, -95.66),
+    'Beltrami':     (47.97, -94.90),
+    'Carlton':      (46.59, -92.68),
+    'Cass':         (46.95, -94.33),
+    'Clay':         (46.89, -96.50),
+    'Cook':         (47.87, -90.55),
+    'Crow Wing':    (46.50, -94.07),
+    'Fillmore':     (43.67, -92.09),
+    'Grant':        (45.93, -96.02),
+    'Hubbard':      (47.10, -94.92),
+    'Itasca':       (47.50, -93.62),
+    'Koochiching':  (48.22, -93.78),
+    'Lake':         (47.38, -91.39),
+    'Lyon':         (44.41, -95.83),
+    'Marshall':     (48.35, -96.37),
+    'Meeker':       (45.12, -94.52),
+    'Mille Lacs':   (45.95, -93.65),
+    'Morrison':     (46.02, -94.26),
+    'Norman':       (47.33, -96.46),
+    'Pine':         (46.12, -92.72),
+    'Polk':         (47.77, -96.41),
+    'Roseau':       (48.73, -95.85),
+    'St. Louis':    (47.57, -92.49),
+    'Swift':        (45.29, -95.84),
+    'Wabasha':      (44.27, -92.03),
+    'Wadena':       (46.58, -95.00),
+    'Winona':       (43.90, -91.66),
+    # Multi-county trails: use geographic midpoint of the listed counties
+    'Beltrami, Marshall': (48.10, -95.60),
+    'Clay, Norman, Polk': (47.30, -96.45),
+    'Crow Wing, Aitkin':  (46.55, -93.70),
+    'Lake, St. Louis':    (47.47, -91.94),
+}
 
 
 def build_trail_dict(row):
@@ -185,28 +178,27 @@ def build_trail_dict(row):
     if not d.get('dnr_url') and d.get('trail_id'):
         d['dnr_url'] = f"https://www.dnr.state.mn.us/ohv/trail_detail.html?id={d['trail_id']}"
 
-    # Use database coordinates (from geocode_trails.py) when available,
-    # otherwise fall back to county center coordinates.
+    # Use database coordinates (geocoded by scraper) when available,
+    # otherwise fall back to county-center coordinates.
     lat = d.get('latitude')
     lng = d.get('longitude')
-    if lat is None or lng is None:
-        county_coords = get_county_coords()
+    used_county_fallback = lat is None or lng is None
+    if used_county_fallback:
         counties = d.get('counties', '')
-        coords = county_coords.get(counties)
+        coords = COUNTY_COORDS.get(counties)
         if not coords and counties:
-            # Try first county for multi-county trails
             first_county = counties.split(',')[0].strip()
-            coords = county_coords.get(first_county)
+            coords = COUNTY_COORDS.get(first_county)
         lat = coords[0] if coords else None
         lng = coords[1] if coords else None
+        used_county_fallback = lat is not None  # False if county not in table either
 
-    # For trails still at county-center coordinates (no geocoded position),
-    # add a small deterministic jitter so overlapping markers don't stack perfectly
-    # on the map. Uses the trail name as a seed for consistency across loads.
-    # Only jitter when coordinates match a county center (2 decimal places).
-    is_county_center = (lat is not None and lng is not None
-                        and round(lat, 2) == lat and round(lng, 2) == lng)
-    if is_county_center:
+    # County-center coordinates for different trails in the same county stack on
+    # top of each other on the map. Add a small deterministic jitter (seeded by
+    # trail name) so they separate visually without drifting on reload.
+    # Only applies when we actually fell back to a county center — never to
+    # real geocoded coordinates stored in the DB.
+    if used_county_fallback and lat is not None:
         jitter_seed = hashlib.md5(d.get('name', '').encode()).hexdigest()
         jitter_lat = (int(jitter_seed[:8], 16) / 0xFFFFFFFF - 0.5) * 0.04  # ±0.02° (~2 km)
         jitter_lng = (int(jitter_seed[8:16], 16) / 0xFFFFFFFF - 0.5) * 0.04

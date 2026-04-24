@@ -1,58 +1,17 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minnesota OHV Trail Dashboard</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #222; line-height: 1.5; }
+{% extends "base.html" %}
 
-        /* Header */
-        header { background: linear-gradient(135deg, #1a2a3a 0%, #2563eb 100%); color: white; padding: 24px 0; box-shadow: 0 2px 12px rgba(0,0,0,0.2); }
-        header .inner { max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
-        header .title-block h1 { font-size: 2rem; font-weight: 700; margin-bottom: 4px; }
-        header .title-block p { font-size: 1rem; opacity: 0.85; }
-        #last-updated { font-size: 0.78rem; opacity: 0.65; margin-top: 6px; }
+{% block title %}Minnesota OHV Trail Dashboard{% endblock %}
+{% block page_title %}Minnesota OHV Trail Dashboard{% endblock %}
+{% block tab_table %}class="active"{% endblock %}
 
-        /* Location widget */
-        .location-widget { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 12px 16px; min-width: 260px; }
-        .location-widget label { display: block; font-size: 0.75rem; opacity: 0.8; margin-bottom: 6px; letter-spacing: 0.04em; text-transform: uppercase; }
-        .location-row { display: flex; gap: 6px; align-items: center; }
-        .location-row input { flex: 1; padding: 7px 10px; border-radius: 6px; border: none; font-size: 0.9rem; background: rgba(255,255,255,0.9); color: #222; width: 100px; }
-        .location-row input:focus { outline: 2px solid #fff; }
-        .btn-locate { padding: 7px 10px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); border-radius: 6px; color: white; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
-        .btn-locate:hover { background: rgba(255,255,255,0.3); }
-        #location-status { font-size: 0.75rem; opacity: 0.75; margin-top: 6px; min-height: 14px; }
-
-        .container { max-width: 1400px; margin: 0 auto; padding: 24px 20px; }
-
-        /* Stats */
-        .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
-        .stat-card { background: white; padding: 18px 20px; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.08); text-align: center; }
-        .stat-card h3 { font-size: 2.2rem; font-weight: 700; margin-bottom: 2px; }
-        .stat-card p { font-size: 0.85rem; color: #666; }
-        .stat-card.open   { border-top: 4px solid #16a34a; } .stat-card.open h3   { color: #16a34a; }
-        .stat-card.closed { border-top: 4px solid #dc2626; } .stat-card.closed h3 { color: #dc2626; }
-        .stat-card.limited{ border-top: 4px solid #d97706; } .stat-card.limited h3{ color: #d97706; }
-        .stat-card.total  { border-top: 4px solid #2563eb; } .stat-card.total h3  { color: #2563eb; }
-
-        /* Controls */
-        .controls { background: white; padding: 16px 20px; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.08); margin-bottom: 20px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+{% block extra_styles %}
+        /* Table */
         .search-box { flex: 1; min-width: 260px; }
         .search-box input { width: 100%; padding: 10px 16px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 0.95rem; }
         .search-box input:focus { outline: none; border-color: #2563eb; }
-        .filters { display: flex; gap: 8px; flex-wrap: wrap; }
-        .filter-btn { padding: 9px 18px; border: 2px solid #e0e0e0; background: white; border-radius: 8px; cursor: pointer; font-size: 0.88rem; text-decoration: none; color: #444; transition: all 0.15s; }
-        .filter-btn:hover { border-color: #2563eb; color: #2563eb; }
-        .filter-btn.active               { background: #2563eb; color: white; border-color: #2563eb; }
-        .filter-btn.active.open-btn      { background: #16a34a; border-color: #16a34a; }
-        .filter-btn.active.closed-btn    { background: #dc2626; border-color: #dc2626; }
-        .filter-btn.active.limited-btn   { background: #d97706; border-color: #d97706; }
         .export-btn { padding: 10px 20px; background: #16a34a; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 0.88rem; text-decoration: none; white-space: nowrap; }
         .export-btn:hover { background: #15803d; }
 
-        /* Table */
         .trails-table { background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 6px rgba(0,0,0,0.08); }
         table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
         thead { background: #f8fafc; }
@@ -66,136 +25,51 @@
         .trail-name a:hover { color: #2563eb; text-decoration: underline; }
         .status-notes { display: block; font-size: 0.78rem; color: #666; margin-top: 2px; font-style: italic; line-height: 1.3; }
 
-        /* Status badges */
-        .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-weight: 600; font-size: 0.8rem; white-space: nowrap; }
-        .badge-open    { background: #dcfce7; color: #15803d; }
-        .badge-closed  { background: #fee2e2; color: #b91c1c; }
-        .badge-limited { background: #fef3c7; color: #b45309; }
-        .badge-unknown { background: #f1f5f9; color: #64748b; }
-
         .btn-directions { display: inline-block; padding: 5px 11px; background: #2563eb; color: white; border-radius: 6px; text-decoration: none; font-size: 0.78rem; white-space: nowrap; }
         .btn-directions:hover { background: #1d4ed8; }
 
         .distance-cell { font-weight: 500; font-size: 0.88rem; color: #374151; white-space: nowrap; }
         .distance-na { color: #9ca3af; font-size: 0.82rem; }
 
-        .no-results { text-align: center; padding: 48px; color: #888; font-size: 1rem; }
-
-        footer { text-align: center; padding: 28px 20px; color: #888; font-size: 0.82rem; margin-top: 8px; }
-        footer a { color: #2563eb; text-decoration: none; }
-        footer a:hover { text-decoration: underline; }
-
-        /* Tab bar */
-        .tab-bar { display: flex; gap: 0; border-bottom: 2px solid #e0e0e0; margin-bottom: 20px; }
-        .tab-bar a { padding: 10px 24px; text-decoration: none; color: #666; font-weight: 600; font-size: 0.95rem; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
-        .tab-bar a:hover { color: #2563eb; }
-        .tab-bar a.active { color: #2563eb; border-bottom-color: #2563eb; }
-
         .sort-arrow { opacity: 0.35; margin-left: 2px; }
         .sort-arrow.active { opacity: 1; }
 
+        .no-results { text-align: center; padding: 48px; color: #888; font-size: 1rem; }
+
         /* ── Mobile: stack each row as a card ─────────────────────────────── */
         @media (max-width: 1024px) {
-            header .inner { flex-direction: column; }
-            header .title-block h1 { font-size: 1.4rem; }
-            .location-widget { width: 100%; min-width: unset; }
-
             .trails-table { border-radius: 10px; }
-
-            /* Hide the header row — labels come from data-label on each cell */
             #trails-table thead { display: none; }
-
             #trails-table tbody tr {
-                display: block;
-                border: 1px solid #e8eaed;
-                border-radius: 10px;
-                margin-bottom: 12px;
-                padding: 4px 0;
-                background: white;
+                display: block; border: 1px solid #e8eaed; border-radius: 10px;
+                margin-bottom: 12px; padding: 4px 0; background: white;
                 box-shadow: 0 1px 4px rgba(0,0,0,0.06);
             }
             #trails-table tbody tr:hover { background: white; }
-
             #trails-table td {
-                display: flex;
-                align-items: baseline;
-                gap: 10px;
-                padding: 9px 16px;
-                border-bottom: 1px solid #f4f5f7;
-                font-size: 0.9rem;
+                display: flex; align-items: baseline; gap: 10px;
+                padding: 9px 16px; border-bottom: 1px solid #f4f5f7; font-size: 0.9rem;
             }
             #trails-table td:last-child { border-bottom: none; }
-
-            /* Left-side label pulled from data-label attribute */
             #trails-table td::before {
-                content: attr(data-label);
-                flex-shrink: 0;
-                width: 90px;
-                font-size: 0.75rem;
-                font-weight: 600;
-                color: #888;
-                text-transform: uppercase;
-                letter-spacing: 0.03em;
+                content: attr(data-label); flex-shrink: 0; width: 90px;
+                font-size: 0.75rem; font-weight: 600; color: #888;
+                text-transform: uppercase; letter-spacing: 0.03em;
             }
-
-            /* Trail name cell: stack name + notes vertically */
             #trails-table td.trail-name { flex-direction: column; align-items: flex-start; gap: 2px; }
             #trails-table td.trail-name::before { width: auto; }
-
-            /* Sort headers not usable on mobile — hide sort hint */
             .sort-arrow { display: none; }
-
-            /* Show the mobile sort control */
             .mobile-sort { display: flex; align-items: center; gap: 8px; width: 100%; }
             .mobile-sort select {
-                flex: 1;
-                padding: 10px 12px;
-                border: 2px solid #e0e0e0;
-                border-radius: 8px;
-                font-size: 0.9rem;
-                background: white;
-                color: #222;
+                flex: 1; padding: 10px 12px; border: 2px solid #e0e0e0;
+                border-radius: 8px; font-size: 0.9rem; background: white; color: #222;
             }
             .mobile-sort select:focus { outline: none; border-color: #2563eb; }
             .mobile-sort label { font-size: 0.85rem; color: #555; white-space: nowrap; }
         }
-    </style>
-</head>
-<body>
-<header>
-    <div class="inner">
-        <div class="title-block">
-            <h1>Minnesota OHV Trail Dashboard</h1>
-            <p>Trail status from Minnesota DNR — <span id="next-update-label">loading...</span></p>
-            <div id="last-updated"></div>
-        </div>
-        <div class="location-widget">
-            <label>Your Location (for distances)</label>
-            <div class="location-row">
-                <input type="text" id="zip-input" placeholder="Zip code" maxlength="10" value="55304">
-                <button class="btn-locate" onclick="useZip()" title="Calculate distances from this zip code">Set Zip</button>
-                <button class="btn-locate" onclick="useGeolocation()" title="Use your current GPS location">&#x2316; GPS</button>
-            </div>
-            <div id="location-status">Default: Andover, MN (55304)</div>
-        </div>
-    </div>
-</header>
+{% endblock %}
 
-<div class="container">
-    <!-- Tab navigation -->
-    <div class="tab-bar">
-        <a href="/" class="active">Table</a>
-        <a href="/map">Map</a>
-    </div>
-
-    <!-- Stats -->
-    <div class="stats-bar">
-        <div class="stat-card open">   <h3 id="stat-open">—</h3><p>Open</p></div>
-        <div class="stat-card closed"> <h3 id="stat-closed">—</h3><p>Closed</p></div>
-        <div class="stat-card limited"><h3 id="stat-limited">—</h3><p>Limited</p></div>
-        <div class="stat-card total">  <h3 id="stat-total">—</h3><p>Total</p></div>
-    </div>
-
+{% block content %}
     <!-- Controls -->
     <div class="controls">
         <div class="search-box">
@@ -273,23 +147,17 @@
             </tbody>
         </table>
     </div>
+{% endblock %}
 
-    <footer>
-        Data source: <a href="https://www.dnr.state.mn.us/ohv/index.html" target="_blank">Minnesota DNR — Off-Highway Vehicle Trails</a><br>
-        <span style="margin-top:6px;display:block;">Always verify trail status with the official DNR source before heading out.</span>
-    </footer>
-</div>
+{% block page_init %}
+    updateDistances();
+{% endblock %}
+
 
 <script>
-    // ── User location state ──────────────────────────────────────────────────
-    // Default: Andover, MN 55304
-    let userLat = 45.2330;
-    let userLng = -93.3508;
-    let locationLabel = 'Andover, MN (55304)';
-
     // ── Haversine straight-line distance (miles) ─────────────────────────────
     function haversine(lat1, lng1, lat2, lng2) {
-        const R = 3958.8; // Earth radius in miles
+        const R = 3958.8;
         const dLat = (lat2 - lat1) * Math.PI / 180;
         const dLng = (lng2 - lng1) * Math.PI / 180;
         const a = Math.sin(dLat/2)**2 +
@@ -310,68 +178,17 @@
                 const miles = haversine(userLat, userLng, lat, lng);
                 distCell.textContent = `~${Math.round(miles)} mi`;
                 distCell.classList.remove('distance-na');
-                // Directions: origin = user location, destination = trail coords
                 dirLink.href = `https://www.google.com/maps/dir/?api=1&origin=${userLat},${userLng}&destination=${lat},${lng}`;
             } else {
                 distCell.innerHTML = '<span class="distance-na">—</span>';
-                // No coords: fall back to name-based destination search
                 const dest = encodeURIComponent(name + ' Minnesota');
                 dirLink.href = `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
             }
         });
     }
 
-    // ── Set location and refresh ──────────────────────────────────────────────
-    function setLocation(lat, lng, label) {
-        userLat = lat;
-        userLng = lng;
-        locationLabel = label;
-        document.getElementById('location-status').textContent = label;
+    function onLocationChanged() {
         updateDistances();
-    }
-
-    // ── Zip code → coordinates via OpenStreetMap Nominatim (free, no key) ────
-    async function useZip() {
-        const zip = document.getElementById('zip-input').value.trim();
-        if (!zip) return;
-        const status = document.getElementById('location-status');
-        status.textContent = 'Looking up zip code...';
-        try {
-            const url = `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(zip)}&country=US&format=json&limit=1`;
-            const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
-            const data = await resp.json();
-            if (data.length === 0) { status.textContent = 'Zip code not found — try again.'; return; }
-            const lat = parseFloat(data[0].lat);
-            const lng = parseFloat(data[0].lon);
-            const place = data[0].display_name.split(',').slice(0, 2).join(',').trim();
-            setLocation(lat, lng, `${zip} — ${place}`);
-        } catch (e) {
-            status.textContent = 'Could not look up zip — check your connection.';
-        }
-    }
-
-    // Allow pressing Enter in zip field
-    document.getElementById('zip-input').addEventListener('keydown', e => {
-        if (e.key === 'Enter') useZip();
-    });
-
-    // ── Browser GPS geolocation ───────────────────────────────────────────────
-    function useGeolocation() {
-        if (!navigator.geolocation) {
-            document.getElementById('location-status').textContent = 'Geolocation not supported by your browser.';
-            return;
-        }
-        document.getElementById('location-status').textContent = 'Requesting GPS location...';
-        navigator.geolocation.getCurrentPosition(
-            pos => {
-                const lat = pos.coords.latitude;
-                const lng = pos.coords.longitude;
-                setLocation(lat, lng, `GPS location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
-            },
-            err => {
-                document.getElementById('location-status').textContent = 'GPS denied — using zip code instead.';
-            }
-        );
     }
 
     // ── Sort ──────────────────────────────────────────────────────────────────
@@ -401,14 +218,12 @@
         if (arrow) { arrow.textContent = sortAsc ? '↑' : '↓'; arrow.classList.add('active'); }
     }
 
-    // ── Mobile sort dropdown ──────────────────────────────────────────────────
     function mobileSortChanged() {
         const val = document.getElementById('mobile-sort-select').value;
         const [col, dir] = val.split('-');
         sortTable(parseInt(col), dir === 'asc');
     }
 
-    // Show/hide the mobile sort control based on viewport width
     const mobileSortControl = document.getElementById('mobile-sort-control');
     const mobileBreakpoint = window.matchMedia('(max-width: 1024px)');
     function applyMobileSortVisibility(mq) {
@@ -425,51 +240,4 @@
             row.style.display = row.textContent.toLowerCase().includes(term) ? '' : 'none';
         });
     }
-
-    // ── Next-update countdown ─────────────────────────────────────────────────
-    let nextScrapeTime = null;
-
-    function formatCountdown(targetISO) {
-        const now = new Date();
-        const target = new Date(targetISO);
-        const diffMs = target - now;
-        if (diffMs <= 0) return 'Update running now';
-        const hours = Math.ceil(diffMs / 3600000);
-        return `Updates in ${hours} hour${hours !== 1 ? 's' : ''}`;
-    }
-
-    function tickCountdown() {
-        if (!nextScrapeTime) return;
-        document.getElementById('next-update-label').textContent = formatCountdown(nextScrapeTime);
-    }
-
-    // ── Stats ─────────────────────────────────────────────────────────────────
-    async function loadStats() {
-        try {
-            const r = await fetch('/api/stats');
-            const s = await r.json();
-            document.getElementById('stat-open').textContent    = s.open    ?? 0;
-            document.getElementById('stat-closed').textContent  = s.closed  ?? 0;
-            document.getElementById('stat-limited').textContent = s.limited ?? 0;
-            document.getElementById('stat-total').textContent   = s.total   ?? 0;
-            if (s.last_updated) {
-                document.getElementById('last-updated').textContent = `Data last updated: ${s.last_updated}`;
-            }
-            if (s.next_scrape) {
-                nextScrapeTime = s.next_scrape;
-                tickCountdown();
-                setInterval(tickCountdown, 60000);
-            } else {
-                document.getElementById('next-update-label').textContent = 'updates in 12 hours';
-            }
-        } catch (e) {
-            document.getElementById('next-update-label').textContent = 'updates in 12 hours';
-        }
-    }
-
-    // ── Init ──────────────────────────────────────────────────────────────────
-    loadStats();
-    updateDistances(); // render with default location on load
 </script>
-</body>
-</html>

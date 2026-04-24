@@ -33,7 +33,10 @@ def init_database():
             status_notes TEXT,
             last_updated DATE,
             normal_season TEXT,
-            dnr_url TEXT
+            dnr_url TEXT,
+            latitude REAL,
+            longitude REAL,
+            location_text TEXT
         )
     ''')
 

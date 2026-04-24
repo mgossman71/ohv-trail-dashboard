@@ -192,9 +192,9 @@ CREATE TABLE trails (
     last_updated    DATE,
     normal_season   TEXT,
     dnr_url         TEXT,               -- Link to DNR trail detail page
-    latitude        REAL,               -- Geocoded trail location
-    longitude       REAL,               -- Geocoded trail location
-    location_text   TEXT                -- Raw DNR location text (for change detection)
+    latitude        REAL,               -- Geocoded trailhead latitude (Nominatim)
+    longitude       REAL,               -- Geocoded trailhead longitude (Nominatim)
+    location_text   TEXT                -- Raw DNR location text; used to detect changes and avoid re-geocoding
 );
 
 -- Audit log of every status change

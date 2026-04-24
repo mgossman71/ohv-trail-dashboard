@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Minnesota OHV Trail Dashboard{% endblock %}</title>
+    {% block head_extra %}{% endblock %}
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #222; line-height: 1.5; }
+
+        /* Header */
+        header { background: linear-gradient(135deg, #1a2a3a 0%, #2563eb 100%); color: white; padding: 24px 0; box-shadow: 0 2px 12px rgba(0,0,0,0.2); }
+        header .inner { max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+        header .title-block h1 { font-size: 2rem; font-weight: 700; margin-bottom: 4px; }
+        header .title-block p { font-size: 1rem; opacity: 0.85; }
+        #last-updated { font-size: 0.78rem; opacity: 0.65; margin-top: 6px; }
+
+        /* Location widget */
+        .location-widget { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 12px 16px; min-width: 260px; }
+        .location-widget label { display: block; font-size: 0.75rem; opacity: 0.8; margin-bottom: 6px; letter-spacing: 0.04em; text-transform: uppercase; }
+        .location-row { display: flex; gap: 6px; align-items: center; }
+        .location-row input { flex: 1; padding: 7px 10px; border-radius: 6px; border: none; font-size: 0.9rem; background: rgba(255,255,255,0.9); color: #222; width: 100px; }
+        .location-row input:focus { outline: 2px solid #fff; }
+        .btn-locate { padding: 7px 10px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); border-radius: 6px; color: white; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
+        .btn-locate:hover { background: rgba(255,255,255,0.3); }
+        #location-status { font-size: 0.75rem; opacity: 0.75; margin-top: 6px; min-height: 14px; }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 24px 20px; }
+
+        /* Stats */
+        .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .stat-card { background: white; padding: 18px 20px; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.08); text-align: center; }
+        .stat-card h3 { font-size: 2.2rem; font-weight: 700; margin-bottom: 2px; }
+        .stat-card p { font-size: 0.85rem; color: #666; }
+        .stat-card.open   { border-top: 4px solid #16a34a; } .stat-card.open h3   { color: #16a34a; }
+        .stat-card.closed { border-top: 4px solid #dc2626; } .stat-card.closed h3 { color: #dc2626; }
+        .stat-card.limited{ border-top: 4px solid #d97706; } .stat-card.limited h3{ color: #d97706; }
+        .stat-card.total  { border-top: 4px solid #2563eb; } .stat-card.total h3  { color: #2563eb; }
+
+        /* Tab bar */
+        .tab-bar { display: flex; gap: 0; border-bottom: 2px solid #e0e0e0; margin-bottom: 20px; }
+        .tab-bar a { padding: 10px 24px; text-decoration: none; color: #666; font-weight: 600; font-size: 0.95rem; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
+        .tab-bar a:hover { color: #2563eb; }
+        .tab-bar a.active { color: #2563eb; border-bottom-color: #2563eb; }
+
+        /* Controls */
+        .controls { background: white; padding: 16px 20px; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.08); margin-bottom: 20px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+        .filters { display: flex; gap: 8px; flex-wrap: wrap; }
+        .filter-btn { padding: 9px 18px; border: 2px solid #e0e0e0; background: white; border-radius: 8px; cursor: pointer; font-size: 0.88rem; text-decoration: none; color: #444; transition: all 0.15s; }
+        .filter-btn:hover { border-color: #2563eb; color: #2563eb; }
+        .filter-btn.active               { background: #2563eb; color: white; border-color: #2563eb; }
+        .filter-btn.active.open-btn      { background: #16a34a; border-color: #16a34a; }
+        .filter-btn.active.closed-btn    { background: #dc2626; border-color: #dc2626; }
+        .filter-btn.active.limited-btn   { background: #d97706; border-color: #d97706; }
+
+        /* Status badges */
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-weight: 600; font-size: 0.8rem; white-space: nowrap; }
+        .badge-open    { background: #dcfce7; color: #15803d; }
+        .badge-closed  { background: #fee2e2; color: #b91c1c; }
+        .badge-limited { background: #fef3c7; color: #b45309; }
+        .badge-unknown { background: #f1f5f9; color: #64748b; }
+
+        footer { text-align: center; padding: 28px 20px; color: #888; font-size: 0.82rem; margin-top: 8px; }
+        footer a { color: #2563eb; text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        @media (max-width: 1024px) {
+            header .inner { flex-direction: column; }
+            header .title-block h1 { font-size: 1.4rem; }
+            .location-widget { width: 100%; min-width: unset; }
+        }
+
+        {% block extra_styles %}{% endblock %}
+    </style>
+</head>
+<body>
+<header>
+    <div class="inner">
+        <div class="title-block">
+            <h1>{% block page_title %}Minnesota OHV Trail Dashboard{% endblock %}</h1>
+            <p>Trail status from Minnesota DNR — <span id="next-update-label">loading...</span></p>
+            <div id="last-updated"></div>
+        </div>
+        <div class="location-widget">
+            <label>{% block location_label %}Your Location (for distances){% endblock %}</label>
+            <div class="location-row">
+                <input type="text" id="zip-input" placeholder="Zip code" maxlength="10" value="55304">
+                <button class="btn-locate" onclick="useZip()" title="Calculate distances from this zip code">Set Zip</button>
+                <button class="btn-locate" onclick="useGeolocation()" title="Use your current GPS location">&#x2316; GPS</button>
+            </div>
+            <div id="location-status">Default: Andover, MN (55304)</div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+    <div class="stats-bar">
+        <div class="stat-card open">   <h3 id="stat-open">—</h3><p>Open</p></div>
+        <div class="stat-card closed"> <h3 id="stat-closed">—</h3><p>Closed</p></div>
+        <div class="stat-card limited"><h3 id="stat-limited">—</h3><p>Limited</p></div>
+        <div class="stat-card total">  <h3 id="stat-total">—</h3><p>Total</p></div>
+    </div>
+
+    <div class="tab-bar">
+        <a href="/" {% block tab_table %}{% endblock %}>Table</a>
+        <a href="/map" {% block tab_map %}{% endblock %}>Map</a>
+    </div>
+
+    {% block content %}{% endblock %}
+
+    <footer>
+        Data source: <a href="https://www.dnr.state.mn.us/ohv/index.html" target="_blank">Minnesota DNR — Off-Highway Vehicle Trails</a><br>
+        <span style="margin-top:6px;display:block;">Always verify trail status with the official DNR source before heading out.</span>
+    </footer>
+</div>
+
+<script>
+    // ── User location state ──────────────────────────────────────────────────
+    // Default: Andover, MN 55304
+    let userLat = 45.2330;
+    let userLng = -93.3508;
+    let locationLabel = 'Andover, MN (55304)';
+
+    // ── Zip code → coordinates via Nominatim (free, no key) ─────────────────
+    async function useZip() {
+        const zip = document.getElementById('zip-input').value.trim();
+        if (!zip) return;
+        const statusEl = document.getElementById('location-status');
+        statusEl.textContent = 'Looking up zip code...';
+        try {
+            const url = `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(zip)}&country=US&format=json&limit=1`;
+            const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+            const data = await resp.json();
+            if (data.length === 0) { statusEl.textContent = 'Zip code not found — try again.'; return; }
+            const lat = parseFloat(data[0].lat);
+            const lng = parseFloat(data[0].lon);
+            const place = data[0].display_name.split(',').slice(0, 2).join(',').trim();
+            setLocation(lat, lng, `${zip} — ${place}`);
+            {% block on_zip_set %}{% endblock %}
+        } catch (e) {
+            document.getElementById('location-status').textContent = 'Could not look up zip — check your connection.';
+        }
+    }
+
+    document.getElementById('zip-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') useZip();
+    });
+
+    // ── Browser GPS geolocation ───────────────────────────────────────────────
+    function useGeolocation() {
+        if (!navigator.geolocation) {
+            document.getElementById('location-status').textContent = 'Geolocation not supported by your browser.';
+            return;
+        }
+        document.getElementById('location-status').textContent = 'Requesting GPS location...';
+        navigator.geolocation.getCurrentPosition(
+            pos => {
+                const lat = pos.coords.latitude;
+                const lng = pos.coords.longitude;
+                setLocation(lat, lng, `GPS location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+                {% block on_gps_set %}{% endblock %}
+            },
+            () => {
+                document.getElementById('location-status').textContent = 'GPS denied — using zip code instead.';
+            }
+        );
+    }
+
+    // ── Set location ──────────────────────────────────────────────────────────
+    function setLocation(lat, lng, label) {
+        userLat = lat;
+        userLng = lng;
+        locationLabel = label;
+        document.getElementById('location-status').textContent = label;
+        onLocationChanged(lat, lng, label);
+    }
+
+    // Subpages override this to react to location changes
+    function onLocationChanged(lat, lng, label) {}
+
+    // ── Stats + next-update countdown ────────────────────────────────────────
+    let nextScrapeTime = null;
+
+    function formatCountdown(targetISO) {
+        const diffMs = new Date(targetISO) - new Date();
+        if (diffMs <= 0) return 'Update running now';
+        const hours = Math.ceil(diffMs / 3600000);
+        return `Updates in ${hours} hour${hours !== 1 ? 's' : ''}`;
+    }
+
+    function tickCountdown() {
+        if (!nextScrapeTime) return;
+        document.getElementById('next-update-label').textContent = formatCountdown(nextScrapeTime);
+    }
+
+    async function loadStats() {
+        try {
+            const r = await fetch('/api/stats');
+            const s = await r.json();
+            document.getElementById('stat-open').textContent    = s.open    ?? 0;
+            document.getElementById('stat-closed').textContent  = s.closed  ?? 0;
+            document.getElementById('stat-limited').textContent = s.limited ?? 0;
+            document.getElementById('stat-total').textContent   = s.total   ?? 0;
+            if (s.last_updated) {
+                document.getElementById('last-updated').textContent = `Data last updated: ${s.last_updated}`;
+            }
+            if (s.next_scrape) {
+                nextScrapeTime = s.next_scrape;
+                tickCountdown();
+                setInterval(tickCountdown, 60000);
+            } else {
+                document.getElementById('next-update-label').textContent = 'updates in 12 hours';
+            }
+        } catch (e) {
+            document.getElementById('next-update-label').textContent = 'updates in 12 hours';
+        }
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    loadStats();
+    {% block page_init %}{% endblock %}
+</script>
+</body>
+</html>
