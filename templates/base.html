@@ -217,10 +217,12 @@
         }
     }
 
-    // ── Init ──────────────────────────────────────────────────────────────────
+</script>
+{% block page_scripts %}{% endblock %}
+<script>
+    // ── Init (runs after page_scripts so page-specific functions are defined) ─
     loadStats();
     {% block page_init %}{% endblock %}
 </script>
-{% block page_scripts %}{% endblock %}
 </body>
 </html>
