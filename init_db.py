@@ -33,7 +33,10 @@ def init_database():
             status_notes TEXT,
             last_updated DATE,
             normal_season TEXT,
-            dnr_url TEXT
+            dnr_url TEXT,
+            latitude REAL,
+            longitude REAL,
+            location_text TEXT
         )
     ''')
 
@@ -48,11 +51,12 @@ def init_database():
         )
     ''')
 
-    # Add dnr_url to existing databases that predate this column
-    try:
-        cursor.execute('ALTER TABLE trails ADD COLUMN dnr_url TEXT')
-    except Exception:
-        pass
+    # Add columns added in later versions to existing databases
+    for col, ctype in [('dnr_url', 'TEXT'), ('latitude', 'REAL'), ('longitude', 'REAL'), ('location_text', 'TEXT')]:
+        try:
+            cursor.execute(f'ALTER TABLE trails ADD COLUMN {col} {ctype}')
+        except Exception:
+            pass
 
     conn.commit()
 

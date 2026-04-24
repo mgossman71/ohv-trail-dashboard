@@ -25,6 +25,7 @@ import os
 import csv
 import io
 import sqlite3
+import hashlib
 from flask import Flask, render_template, request, jsonify
 
 # Portable paths — override DATABASE_PATH env var when running outside Docker
@@ -72,7 +73,9 @@ def init_db():
             status_notes TEXT,
             last_updated DATE,
             normal_season TEXT,
-            dnr_url TEXT
+            dnr_url TEXT,
+            latitude REAL,
+            longitude REAL
         )
     ''')
     conn.execute('''
@@ -85,11 +88,19 @@ def init_db():
             FOREIGN KEY (trail_id) REFERENCES trails(trail_id)
         )
     ''')
-    # Add dnr_url column to existing databases that don't have it
+    # Add columns to existing databases that don't have them
     try:
         conn.execute('ALTER TABLE trails ADD COLUMN dnr_url TEXT')
     except Exception:
         pass  # Column already exists
+    try:
+        conn.execute('ALTER TABLE trails ADD COLUMN latitude REAL')
+    except Exception:
+        pass
+    try:
+        conn.execute('ALTER TABLE trails ADD COLUMN longitude REAL')
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -103,7 +114,7 @@ def normalize_status(raw):
     if not raw:
         return 'Unknown'
     s = raw.strip().lower()
-    if s == 'open' or s == 'open':
+    if s == 'open':
         return 'OPEN'
     if 'open' in s and 'limited' not in s:
         return 'OPEN'
@@ -114,69 +125,88 @@ def normalize_status(raw):
     return raw.strip()
 
 
-def get_county_coords():
-    """
-    Approximate geographic center coordinates (lat, lng) for Minnesota counties
-    that contain OHV trails.
-
-    These are used by the dashboard's client-side JavaScript to calculate
-    straight-line distance from the user's location to each trail.  They are
-    county-center estimates, not exact trailhead coordinates, so distances are
-    approximate — useful for a rough "how far away is this?" gauge.
-    """
-    return {
-        'Aitkin':       (46.60, -93.41),
-        'Becker':       (46.93, -95.66),
-        'Beltrami':     (47.97, -94.90),
-        'Carlton':      (46.59, -92.68),
-        'Cass':         (46.95, -94.33),
-        'Clay':         (46.89, -96.50),
-        'Cook':         (47.87, -90.55),
-        'Crow Wing':    (46.50, -94.07),
-        'Fillmore':     (43.67, -92.09),
-        'Grant':        (45.93, -96.02),
-        'Hubbard':      (47.10, -94.92),
-        'Itasca':       (47.50, -93.62),
-        'Koochiching':  (48.22, -93.78),
-        'Lake':         (47.38, -91.39),
-        'Lyon':         (44.41, -95.83),
-        'Marshall':     (48.35, -96.37),
-        'Meeker':       (45.12, -94.52),
-        'Mille Lacs':   (46.11, -93.64),
-        'Morrison':     (46.02, -94.26),
-        'Norman':       (47.33, -96.46),
-        'Pine':         (46.12, -92.72),
-        'Polk':         (47.77, -96.41),
-        'Roseau':       (48.73, -95.85),
-        'St. Louis':    (47.57, -92.49),
-        'Swift':        (45.29, -95.84),
-        'Wabasha':      (44.27, -92.03),
-        'Wadena':       (46.58, -95.00),
-        'Winona':       (43.90, -91.66),
-        # Multi-county trails: use geographic midpoint of the listed counties
-        'Beltrami, Marshall': (48.10, -95.60),
-        'Clay, Norman, Polk': (47.30, -96.45),
-        'Crow Wing, Aitkin':  (46.55, -93.70),
-        'Lake, St. Louis':    (47.47, -91.94),
-    }
+# Approximate geographic center coordinates (lat, lng) for Minnesota counties
+# that contain OHV trails. Used as a fallback when a trail has no geocoded
+# coordinates. County-center estimates — distances are approximate.
+COUNTY_COORDS = {
+    'Aitkin':       (46.60, -93.41),
+    'Becker':       (46.93, -95.66),
+    'Beltrami':     (47.97, -94.90),
+    'Carlton':      (46.59, -92.68),
+    'Cass':         (46.95, -94.33),
+    'Clay':         (46.89, -96.50),
+    'Cook':         (47.87, -90.55),
+    'Crow Wing':    (46.50, -94.07),
+    'Fillmore':     (43.67, -92.09),
+    'Grant':        (45.93, -96.02),
+    'Hubbard':      (47.10, -94.92),
+    'Itasca':       (47.50, -93.62),
+    'Koochiching':  (48.22, -93.78),
+    'Lake':         (47.38, -91.39),
+    'Lyon':         (44.41, -95.83),
+    'Marshall':     (48.35, -96.37),
+    'Meeker':       (45.12, -94.52),
+    'Mille Lacs':   (45.95, -93.65),
+    'Morrison':     (46.02, -94.26),
+    'Norman':       (47.33, -96.46),
+    'Pine':         (46.12, -92.72),
+    'Polk':         (47.77, -96.41),
+    'Roseau':       (48.73, -95.85),
+    'St. Louis':    (47.57, -92.49),
+    'Swift':        (45.29, -95.84),
+    'Wabasha':      (44.27, -92.03),
+    'Wadena':       (46.58, -95.00),
+    'Winona':       (43.90, -91.66),
+    # Multi-county trails: use geographic midpoint of the listed counties
+    'Beltrami, Marshall': (48.10, -95.60),
+    'Clay, Norman, Polk': (47.30, -96.45),
+    'Crow Wing, Aitkin':  (46.55, -93.70),
+    'Lake, St. Louis':    (47.47, -91.94),
+}
 
 
 def build_trail_dict(row):
     """
     Convert a sqlite3.Row into a plain dict and attach computed fields:
         dnr_url         Full URL to the trail's DNR detail page.
-        trail_lat/lng   Approximate coordinates from get_county_coords(),
-                        used by the frontend for distance calculation.
+        trail_lat/lng   Coordinates from the database (geocoded or county
+                        center fallback), used by the frontend for distance
+                        calculation and map markers.
         status_display  Canonical status string from normalize_status().
     """
     d = dict(row)
     if not d.get('dnr_url') and d.get('trail_id'):
         d['dnr_url'] = f"https://www.dnr.state.mn.us/ohv/trail_detail.html?id={d['trail_id']}"
-    # Coordinates for client-side distance calculation
-    county_coords = get_county_coords()
-    coords = county_coords.get(d.get('counties', ''))
-    d['trail_lat'] = coords[0] if coords else None
-    d['trail_lng'] = coords[1] if coords else None
+
+    # Use database coordinates (geocoded by scraper) when available,
+    # otherwise fall back to county-center coordinates.
+    lat = d.get('latitude')
+    lng = d.get('longitude')
+    used_county_fallback = lat is None or lng is None
+    if used_county_fallback:
+        counties = d.get('counties', '')
+        coords = COUNTY_COORDS.get(counties)
+        if not coords and counties:
+            first_county = counties.split(',')[0].strip()
+            coords = COUNTY_COORDS.get(first_county)
+        lat = coords[0] if coords else None
+        lng = coords[1] if coords else None
+        used_county_fallback = lat is not None  # False if county not in table either
+
+    # County-center coordinates for different trails in the same county stack on
+    # top of each other on the map. Add a small deterministic jitter (seeded by
+    # trail name) so they separate visually without drifting on reload.
+    # Only applies when we actually fell back to a county center — never to
+    # real geocoded coordinates stored in the DB.
+    if used_county_fallback and lat is not None:
+        jitter_seed = hashlib.md5(d.get('name', '').encode()).hexdigest()
+        jitter_lat = (int(jitter_seed[:8], 16) / 0xFFFFFFFF - 0.5) * 0.04  # ±0.02° (~2 km)
+        jitter_lng = (int(jitter_seed[8:16], 16) / 0xFFFFFFFF - 0.5) * 0.04
+        lat = round(lat + jitter_lat, 5)
+        lng = round(lng + jitter_lng, 5)
+
+    d['trail_lat'] = lat
+    d['trail_lng'] = lng
     d['status_display'] = normalize_status(d.get('status', ''))
     return d
 
@@ -196,7 +226,7 @@ def trails_query(status_filter='all', query=''):
     sql = '''
         SELECT trail_id, name, counties, miles, atv_miles, ohv_miles,
                ohm_miles, morv_miles, winter_miles, status, status_notes,
-               last_updated, normal_season, dnr_url
+               last_updated, normal_season, dnr_url, latitude, longitude
         FROM trails WHERE 1=1
     '''
     params = []
@@ -232,7 +262,45 @@ def api_trails():
     return jsonify(trails_query(status_filter=status_filter))
 
 
+@app.route('/api/trails/geo')
+def api_trails_geo():
+    """Return trails as GeoJSON FeatureCollection for the map view."""
+    status_filter = request.args.get('status', 'all')
+    trails = trails_query(status_filter=status_filter)
+    features = []
+    for t in trails:
+        lat = t.get('trail_lat')
+        lng = t.get('trail_lng')
+        if lat is None or lng is None:
+            continue
+        feature = {
+            'type': 'Feature',
+            'geometry': {
+                'type': 'Point',
+                'coordinates': [lng, lat]
+            },
+            'properties': {
+                'trail_id': t.get('trail_id'),
+                'name': t.get('name'),
+                'counties': t.get('counties'),
+                'miles': t.get('miles'),
+                'status': t.get('status'),
+                'status_display': t.get('status_display'),
+                'status_notes': t.get('status_notes'),
+                'dnr_url': t.get('dnr_url'),
+                'last_updated': t.get('last_updated'),
+            }
+        }
+        features.append(feature)
+    return jsonify({'type': 'FeatureCollection', 'features': features})
+
+
 NEXT_SCRAPE_FILE = os.path.join(os.path.dirname(DATABASE), 'next_scrape.txt')
+
+
+@app.route('/map')
+def map_view():
+    return render_template('map.html')
 
 
 @app.route('/api/stats')
