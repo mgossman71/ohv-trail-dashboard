@@ -106,6 +106,28 @@ def fetch_page(url, retries=3):
     return None
 
 
+def scrape_trail_detail_name(trail_id):
+    """
+    Fetch the trail detail page and extract the real trail name from the
+    page heading. The A-Z listing sometimes abbreviates names (e.g. showing
+    "Aitkin County" instead of "Soo Line North Trail: Aitkin County").
+
+    Returns the full trail name string, or None if the page can't be fetched.
+    """
+    url = f"{DNR_DETAIL_BASE}{trail_id}"
+    soup = fetch_page(url)
+    if not soup:
+        return None
+    main = soup.find(id='main_page_content') or soup.find('main') or soup.body
+    if main:
+        for heading in main.find_all(['h1', 'h2', 'h3']):
+            text = heading.get_text(strip=True)
+            # Skip generic headings like "OHV Trail Detail"
+            if text and text.lower() not in ('ohv trail detail', 'ohv trails'):
+                return text
+    return None
+
+
 def scrape_trail_list():
     """
     Scrape the DNR A-Z trail listing page (az.html).
@@ -160,6 +182,19 @@ def scrape_trail_list():
                 pass
         if not trail_id:
             continue
+
+        # If the name from the listing is just a bare county name
+        # (e.g. "Aitkin County", "Mille Lacs County"), fetch the real name
+        # from the detail page instead.
+        name_lower = name.lower()
+        if (name.endswith(' County') and 'County' in name and
+                'Soo' not in name and 'Grant' not in name and 'Meeker' not in name):
+            print(f"    Fetching real name for trail {trail_id} (listed as \"{name}\")...")
+            real_name = scrape_trail_detail_name(trail_id)
+            if real_name:
+                print(f"    → {real_name}")
+                name = real_name
+                time.sleep(REQUEST_DELAY)
 
         def safe_int(cell_index):
             if cell_index >= len(cells):
