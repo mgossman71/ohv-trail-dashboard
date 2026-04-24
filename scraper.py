@@ -444,7 +444,8 @@ def update_database(trails_from_listing, status_map, location_map=None):
     - Trail names from the scrape are never allowed to overwrite a longer
       existing name (protects against DNR abbreviated link text).
     - If location_map contains geocoded coords for a trail, those are written
-      to latitude/longitude columns.
+      to latitude/longitude columns, and location_text is stored for
+      change detection (avoids re-geocoding unchanged data).
     """
     if location_map is None:
         location_map = {}
@@ -466,8 +467,9 @@ def update_database(trails_from_listing, status_map, location_map=None):
             'SELECT status, name FROM trails WHERE trail_id = ?', (tid,)
         ).fetchone()
 
-        # Get geocoded coordinates if available
+        # Get geocoded coordinates and location text if available
         loc_info = location_map.get(tid)
+        loc_text = loc_info[0] if loc_info else None
         geo_lat = loc_info[2] if loc_info and len(loc_info) > 2 else None
         geo_lon = loc_info[3] if loc_info and len(loc_info) > 3 else None
 
@@ -487,7 +489,7 @@ def update_database(trails_from_listing, status_map, location_map=None):
                         ohv_miles = ?, ohm_miles = ?, morv_miles = ?,
                         winter_miles = ?, status = ?, status_notes = ?,
                         last_updated = ?, dnr_url = ?,
-                        latitude = ?, longitude = ?
+                        latitude = ?, longitude = ?, location_text = ?
                         {season_clause}
                     WHERE trail_id = ?
                 '''.replace('{season_clause}', ', normal_season = ?' if season else ''), (
@@ -495,27 +497,46 @@ def update_database(trails_from_listing, status_map, location_map=None):
                     trail['ohv_miles'], trail['ohm_miles'], trail['morv_miles'],
                     trail['winter_miles'], status, notes,
                     datetime.now().date(), trail['dnr_url'],
-                    geo_lat, geo_lon,
+                    geo_lat, geo_lon, loc_text,
                     *([season] if season else []),
                     tid,
                 ))
             else:
-                conn.execute('''
-                    UPDATE trails SET
-                        name = ?, counties = ?, miles = ?, atv_miles = ?,
-                        ohv_miles = ?, ohm_miles = ?, morv_miles = ?,
-                        winter_miles = ?, status = ?, status_notes = ?,
-                        last_updated = ?, dnr_url = ?
-                        {season_clause}
-                    WHERE trail_id = ?
-                '''.replace('{season_clause}', ', normal_season = ?' if season else ''), (
-                    use_name, trail['counties'], trail['miles'], trail['atv_miles'],
-                    trail['ohv_miles'], trail['ohm_miles'], trail['morv_miles'],
-                    trail['winter_miles'], status, notes,
-                    datetime.now().date(), trail['dnr_url'],
-                    *([season] if season else []),
-                    tid,
-                ))
+                # Still update location_text even if geocoding failed
+                if loc_text:
+                    conn.execute('''
+                        UPDATE trails SET
+                            name = ?, counties = ?, miles = ?, atv_miles = ?,
+                            ohv_miles = ?, ohm_miles = ?, morv_miles = ?,
+                            winter_miles = ?, status = ?, status_notes = ?,
+                            last_updated = ?, dnr_url = ?, location_text = ?
+                            {season_clause}
+                        WHERE trail_id = ?
+                    '''.replace('{season_clause}', ', normal_season = ?' if season else ''), (
+                        use_name, trail['counties'], trail['miles'], trail['atv_miles'],
+                        trail['ohv_miles'], trail['ohm_miles'], trail['morv_miles'],
+                        trail['winter_miles'], status, notes,
+                        datetime.now().date(), trail['dnr_url'], loc_text,
+                        *([season] if season else []),
+                        tid,
+                    ))
+                else:
+                    conn.execute('''
+                        UPDATE trails SET
+                            name = ?, counties = ?, miles = ?, atv_miles = ?,
+                            ohv_miles = ?, ohm_miles = ?, morv_miles = ?,
+                            winter_miles = ?, status = ?, status_notes = ?,
+                            last_updated = ?, dnr_url = ?
+                            {season_clause}
+                        WHERE trail_id = ?
+                    '''.replace('{season_clause}', ', normal_season = ?' if season else ''), (
+                        use_name, trail['counties'], trail['miles'], trail['atv_miles'],
+                        trail['ohv_miles'], trail['ohm_miles'], trail['morv_miles'],
+                        trail['winter_miles'], status, notes,
+                        datetime.now().date(), trail['dnr_url'],
+                        *([season] if season else []),
+                        tid,
+                    ))
             updated += 1
             if old_status != status:
                 conn.execute(
@@ -525,34 +546,34 @@ def update_database(trails_from_listing, status_map, location_map=None):
                 status_changes += 1
                 print(f"  STATUS CHANGE: {use_name} — {old_status} → {status}")
         else:
-            # Insert new trail — include geocoded coords if available
+            # Insert new trail — include geocoded coords + location_text if available
             if geo_lat is not None and geo_lon is not None:
                 conn.execute('''
                     INSERT INTO trails
                         (trail_id, name, counties, miles, atv_miles, ohv_miles, ohm_miles,
                          morv_miles, winter_miles, status, status_notes, last_updated,
-                         normal_season, dnr_url, latitude, longitude)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         normal_season, dnr_url, latitude, longitude, location_text)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     tid, trail['name'], trail['counties'], trail['miles'],
                     trail['atv_miles'], trail['ohv_miles'], trail['ohm_miles'],
                     trail['morv_miles'], trail['winter_miles'],
                     status, notes, datetime.now().date(),
-                    season, trail['dnr_url'], geo_lat, geo_lon,
+                    season, trail['dnr_url'], geo_lat, geo_lon, loc_text,
                 ))
             else:
                 conn.execute('''
                     INSERT INTO trails
                         (trail_id, name, counties, miles, atv_miles, ohv_miles, ohm_miles,
                          morv_miles, winter_miles, status, status_notes, last_updated,
-                         normal_season, dnr_url)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         normal_season, dnr_url, location_text)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     tid, trail['name'], trail['counties'], trail['miles'],
                     trail['atv_miles'], trail['ohv_miles'], trail['ohm_miles'],
                     trail['morv_miles'], trail['winter_miles'],
                     status, notes, datetime.now().date(),
-                    season, trail['dnr_url'],
+                    season, trail['dnr_url'], loc_text,
                 ))
             inserted += 1
 
@@ -573,6 +594,15 @@ def update_database(trails_from_listing, status_map, location_map=None):
     conn.commit()
     conn.close()
     print(f"  DB update: {updated} updated, {inserted} inserted, {removed} removed, {status_changes} status changes")
+
+
+def _ensure_location_text_column(conn):
+    """Add the location_text column if it doesn't exist (migration for older DBs)."""
+    cols = [row[1] for row in conn.execute('PRAGMA table_info(trails)').fetchall()]
+    if 'location_text' not in cols:
+        conn.execute('ALTER TABLE trails ADD COLUMN location_text TEXT')
+        conn.commit()
+        print("  Added location_text column to trails table")
 
 
 def run_scraper():
@@ -605,33 +635,56 @@ def run_scraper():
             print("(no status found, keeping existing)")
         time.sleep(REQUEST_DELAY)
 
-    # Step 3: Geocode trails from DNR location data
-    print(f"\nGeocoding {len(location_map)} trails with location info...")
-    geocoded = 0
-    geocode_failed = 0
-    for tid, (loc_text, fac_cities) in location_map.items():
-        trail_info = next((t for t in trails if t['trail_id'] == tid), None)
-        if not trail_info or not loc_text:
-            continue
-        county = trail_info['counties'].split(',')[0].strip() if trail_info['counties'] else ''
-        query = build_geocode_query(trail_info['name'], loc_text, fac_cities, county)
-        result = geocode(query)
-        time.sleep(GEOCODE_DELAY)
-        if not result and fac_cities:
-            # Retry with just the first facility city
-            simple_query = f"{fac_cities[0].split(',')[0].strip()}, Minnesota"
-            result = geocode(simple_query)
-            time.sleep(GEOCODE_DELAY)
-        if result:
-            lat, lon = result
-            # Store geocoded coords in location_map for DB update
-            location_map[tid] = (loc_text, fac_cities, lat, lon)
-            geocoded += 1
-        else:
-            geocode_failed += 1
-    print(f"  Geocoded: {geocoded} updated, {geocode_failed} failed (keeping existing coords)")
+    # Step 3: Geocode only trails whose location text has changed
+    conn = get_db()
+    _ensure_location_text_column(conn)
 
-    # Step 3: Write to database (including geocoded coordinates)
+    # Load stored location text for comparison
+    stored_locations = {}
+    for row in conn.execute('SELECT trail_id, location_text FROM trails'):
+        stored_locations[row['trail_id']] = row['location_text'] or ''
+
+    geocoded = 0
+    geocode_skipped = 0
+    geocode_failed = 0
+    needs_geocode = {}
+
+    for tid, (loc_text, fac_cities) in location_map.items():
+        stored = stored_locations.get(tid, '')
+        # Only geocode if the location text is new or has changed
+        if loc_text and loc_text.strip() != stored.strip():
+            needs_geocode[tid] = (loc_text, fac_cities)
+        else:
+            geocode_skipped += 1
+
+    if needs_geocode:
+        print(f"\nGeocoding {len(needs_geocode)} trails with changed location info (skipping {geocode_skipped} unchanged)...")
+        for tid, (loc_text, fac_cities) in needs_geocode.items():
+            trail_info = next((t for t in trails if t['trail_id'] == tid), None)
+            if not trail_info or not loc_text:
+                continue
+            county = trail_info['counties'].split(',')[0].strip() if trail_info['counties'] else ''
+            query = build_geocode_query(trail_info['name'], loc_text, fac_cities, county)
+            result = geocode(query)
+            time.sleep(GEOCODE_DELAY)
+            if not result and fac_cities:
+                simple_query = f"{fac_cities[0].split(',')[0].strip()}, Minnesota"
+                result = geocode(simple_query)
+                time.sleep(GEOCODE_DELAY)
+            if result:
+                lat, lon = result
+                location_map[tid] = (loc_text, fac_cities, lat, lon)
+                geocoded += 1
+            else:
+                geocode_failed += 1
+    else:
+        print(f"\nAll {geocode_skipped} trail locations unchanged — skipping geocoding entirely.")
+
+    print(f"  Geocoded: {geocoded} updated, {geocode_failed} failed, {geocode_skipped} unchanged")
+
+    conn.close()
+
+    # Step 4: Write to database (including geocoded coordinates)
     print(f"\nUpdating database...")
     update_database(trails, status_map, location_map)
 
