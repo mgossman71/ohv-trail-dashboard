@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 """
-geocode_trails.py — Geocode OHV trail locations from DNR detail pages.
+geocode_trails.py — Standalone script for one-off trail geocoding.
 
 Reads the Location section from each trail's DNR detail page, extracts
 city names and place references, geocodes them via Nominatim (OpenStreetMap),
-and updates the latitude/longitude in the database.
+and updates the latitude/longitude and location_text in the database.
+
+By default, only geocodes trails whose location_text has changed since the
+last run. Use --force to re-geocode all trails.
+
+Note: The scraper (scraper.py) now handles geocoding automatically during
+each scrape cycle, only re-geocoding when location text changes. You only
+need this script if you want to force a full re-geocode outside the normal
+scrape schedule.
+
+Usage:
+    python geocode_trails.py           # Re-geocode only changed trails
+    python geocode_trails.py --force   # Force re-geocode all trails
 
 Uses a 1-second delay between Nominatim requests per their usage policy.
 """

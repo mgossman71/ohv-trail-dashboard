@@ -1,16 +1,17 @@
 """
 scraper.py — OHV Trail Dashboard data scraper
 
-Fetches current trail status from the Minnesota DNR OHV website and writes
-updates directly to the SQLite database.  The Flask app reads the database on
-every request, so changes are visible to users immediately after each scrape
-with no application restart required.
+Fetches current trail status and location info from the Minnesota DNR OHV
+website and writes updates directly to the SQLite database. The Flask app
+reads the database on every request, so changes are visible immediately after
+each scrape with no application restart required.
 
 Data sources:
     Trail listing:  https://www.dnr.state.mn.us/ohv/az.html
                     Table of all trails with IDs, mileage, and county.
     Trail status:   https://www.dnr.state.mn.us/ohv/trail_detail.html?id=<ID>
-                    Individual detail page scraped for current open/closed status.
+                    Individual detail page scraped for current open/closed status
+                    and the Location section (trailhead directions, city names).
 
 Scraping behaviour:
     - Fetches the full trail list first, then visits each detail page.
@@ -22,6 +23,16 @@ Scraping behaviour:
     - Trail names from the listing are never allowed to overwrite a longer,
       more descriptive name already in the database (guards against the DNR
       abbreviated link text for Soo Line trails).
+
+Geocoding behaviour:
+    - Extracts city names and trailhead directions from the Location section
+      of each DNR detail page.
+    - Geocodes via Nominatim (OpenStreetMap) at 1 request/second.
+    - Stores coordinates in the trails table for use by the map view and
+      distance calculations.
+    - Only re-geocodes if the location text from DNR has changed. On first run,
+      all trails are geocoded. On subsequent runs, typically 0 geocoding
+      requests are made unless the DNR updated a trail's location info.
 
 Run manually:
     python scraper.py

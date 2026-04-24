@@ -1,6 +1,6 @@
 # Minnesota OHV Trail Dashboard
 
-A personal web application for browsing Minnesota OHV trail statuses. Shows which trails are open or closed, how far each one is from your location, links to each trail's DNR page, and one-click Google Maps directions.
+A personal web application for browsing Minnesota OHV trail statuses. Shows which trails are open or closed, how far each one is from your location, links to each trail's DNR page, one-click Google Maps directions, and an interactive map view with real trail locations.
 
 ---
 
@@ -8,6 +8,8 @@ A personal web application for browsing Minnesota OHV trail statuses. Shows whic
 
 - **Live trail status** — Open / Closed / Limited, sourced directly from the Minnesota DNR website
 - **Your location** — Enter a zip code or use GPS; straight-line distances calculate automatically
+- **Interactive map view** — Full-screen map with colored markers (green=open, red=closed, amber=limited), marker clustering, and popup info with directions
+- **Real trail locations** — Trail coordinates are geocoded from DNR location descriptions, not just county centers
 - **DNR links** — Every trail name links to its official DNR detail page
 - **Google Maps directions** — One click opens turn-by-turn directions from your location to the trail
 - **Status notes** — Partial closures, seasonal restrictions, and route changes shown inline
@@ -31,12 +33,16 @@ Minnesota DNR website
    Dashboard  ◄──── always shows current data, no restart needed
 ```
 
-1. On startup, `docker-compose up` launches two containers that share one database file on the host:
+1. On startup, `docker compose up` launches two containers that share one database file on the host:
    - **ohv-dashboard** — the Flask web app, always running
    - **ohv-scraper** — runs `scheduler.py`, which calls `scraper.py` immediately and then again every N hours
 2. `scraper.py` fetches the full trail list from the DNR A-Z page, then visits each trail's detail page for its current open/closed status.
 3. Any status changes are written to the database and recorded in `status_history`. New trails are inserted automatically. Trails that no longer appear on the DNR listing are removed from the database.
 4. Because Flask queries the database on every request, users see updated data the moment the next scraper run finishes — no app restart is needed.
+
+### Trail Locations (Geocoding)
+
+The scraper also extracts location text from each DNR detail page and geocodes it via Nominatim (OpenStreetMap) to get real trailhead coordinates. This only happens when the DNR location text has changed — not on every scrape cycle. On first run, all trails are geocoded. On subsequent runs, typically zero geocoding requests are made.
 
 ---
 
@@ -62,7 +68,7 @@ Valid examples:
 To change the interval, edit `docker-compose.yml` and restart the scraper service:
 
 ```bash
-docker-compose restart ohv-scraper
+docker compose restart ohv-scraper
 ```
 
 ---
@@ -72,21 +78,21 @@ docker-compose restart ohv-scraper
 ### Docker (recommended)
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/mgossman71/ohv-trail-dashboard.git
 cd ohv-trail-dashboard
-docker-compose up --build -d
+docker compose up --build -d
 
 # View the dashboard
 open http://localhost:8000
 
 # Watch scraper logs
-docker-compose logs -f ohv-scraper
+docker compose logs -f ohv-scraper
 
 # Run a manual scrape right now
-docker-compose exec ohv-scraper python scraper.py
+docker compose exec ohv-scraper python scraper.py
 
 # Stop everything
-docker-compose down
+docker compose down
 ```
 
 The database is stored at `./data/trails.db` on the host and persists across container restarts.
@@ -132,19 +138,22 @@ All configuration is done via environment variables. With Docker these are set i
 
 ```
 ohv-trail-dashboard/
-├── app.py                  Flask web app and REST API
-├── scraper.py              DNR website scraper — updates the database
+├── app.py                  Flask web app, REST API, and map endpoints
+├── scraper.py              DNR website scraper — status + location geocoding
 ├── scheduler.py            Long-running loop that calls scraper.py on interval
+├── geocode_trails.py       Standalone script for one-off re-geocoding
 ├── init_db.py              One-time database seed (run before first start)
 ├── templates/
-│   └── index.html          Single-page dashboard (HTML + vanilla JS)
+│   ├── index.html          Table view — stats, filters, trail list
+│   └── map.html            Interactive Leaflet map view
 ├── data/
 │   └── trails.db           SQLite database (created by init_db.py)
 ├── Dockerfile              Container image definition
-└── docker-compose.yml      Two-service orchestration (app + scraper)
+├── docker-compose.yml      Two-service orchestration (app + scraper)
+└── requirements.txt        Python dependencies
 ```
 
-**Tech stack:** Python 3 · Flask · SQLite · BeautifulSoup4 · Vanilla HTML/CSS/JS · Docker
+**Tech stack:** Python 3 · Flask · SQLite · BeautifulSoup4 · Leaflet.js · Nominatim · Docker
 
 ---
 
@@ -152,9 +161,11 @@ ohv-trail-dashboard/
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/` | Dashboard (server-rendered HTML) |
+| GET | `/` | Table view dashboard |
+| GET | `/map` | Interactive map view |
 | GET | `/api/trails` | JSON list of all trails |
 | GET | `/api/trails?status=open` | Filter by status: `open`, `closed`, `limited` |
+| GET | `/api/trails/geo` | GeoJSON FeatureCollection for map markers |
 | GET | `/api/stats` | Counts by status + `last_updated` date |
 | GET | `/api/status-history/<trail_id>` | Status change history for one trail |
 | GET | `/api/export?status=all` | Download trail data as CSV |
@@ -180,7 +191,10 @@ CREATE TABLE trails (
     status_notes    TEXT,
     last_updated    DATE,
     normal_season   TEXT,
-    dnr_url         TEXT                -- Link to DNR trail detail page
+    dnr_url         TEXT,               -- Link to DNR trail detail page
+    latitude        REAL,               -- Geocoded trail location
+    longitude       REAL,               -- Geocoded trail location
+    location_text   TEXT                -- Raw DNR location text (for change detection)
 );
 
 -- Audit log of every status change
@@ -196,16 +210,58 @@ CREATE TABLE status_history (
 
 ---
 
+## Troubleshooting
+
+### Dashboard shows "Database not found"
+
+Run `python init_db.py` to create the database with seed data. If using Docker, restart the containers:
+
+```bash
+docker compose restart
+```
+
+### Map doesn't show trail locations correctly
+
+The first scrape after pulling new code will geocode all trails (takes ~3-4 minutes). Check progress with:
+
+```bash
+docker compose logs -f ohv-scraper
+```
+
+If locations are still wrong after a complete scrape:
+
+1. Check the scraper logs for geocoding failures
+2. Force a full re-geocode: `docker compose exec ohv-scraper python geocode_trails.py --force`
+3. Check the database directly:
+   ```bash
+   sqlite3 data/trails.db "SELECT name, latitude, longitude FROM trails LIMIT 5;"
+   ```
+
+### Data seems stale
+
+Check the "Last updated" timestamp on the dashboard. The scraper runs every 12 hours by default. You can run a manual update with:
+
+```bash
+docker compose exec ohv-scraper python scraper.py
+```
+
+### Distance calculations don't work
+
+The dashboard uses browser-side JavaScript with GeoJS API to convert zip codes to coordinates. If this is blocked by a firewall, zip-to-location won't work, but manual GPS entry will.
+
+---
+
 ## Data Source & Responsible Use
 
 Data is scraped from the [Minnesota DNR OHV Trails pages](https://www.dnr.state.mn.us/ohv/).
 
 - This app is for **personal use only**
 - The 12-hour minimum scrape interval is intentional — please respect it
+- Trail coordinates are geocoded from DNR location descriptions via Nominatim (OpenStreetMap) — they are approximate, not exact trailhead GPS coordinates
 - Always verify trail status with the [official DNR source](https://www.dnr.state.mn.us/ohv/az.html) before heading out
 
 ---
 
-## Disclaimer
+## License
 
-Trail status information may not always reflect the most current conditions. Check the official DNR website and posted signage before riding.
+MIT — do what you want with it. Consider this a template for building dashboards for other states' trail systems.
