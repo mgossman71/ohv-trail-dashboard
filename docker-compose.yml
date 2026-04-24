@@ -22,6 +22,7 @@ services:
     environment:
       - SCRAPE_INTERVAL_HOURS=12  # minimum is 12 hours — do not set lower
       - DATABASE_PATH=/app/data/trails.db
+      - PYTHONUNBUFFERED=1
     restart: unless-stopped     # restart if it crashes
     depends_on:
       - ohv-dashboard
